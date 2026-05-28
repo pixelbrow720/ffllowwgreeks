@@ -1,0 +1,141 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build + vet + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go mod tidy (verify clean)
+        run: |
+          go mod tidy
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "::error::go.mod / go.sum drift — run 'go mod tidy' locally"
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
+
+      - name: build
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test -race -count=1 -timeout 5m ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout 5m
+
+  security:
+    name: staticcheck + govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: install tools
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: staticcheck
+        run: staticcheck ./...
+
+      - name: govulncheck
+        run: govulncheck ./...
+
+  smoke:
+    name: docker compose smoke (demo profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: prepare .env
+        run: cp .env.example .env
+
+      - name: build images + bring up demo stack
+        run: |
+          docker compose -f deploy/docker-compose.yml --profile demo up -d --build
+          echo "stack started"
+
+      - name: wait for api readiness
+        run: |
+          set +e
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/health/ready >/dev/null; then
+              echo "ready after ${i}s"
+              curl -s http://localhost:8080/health/ready
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::api never became ready"
+          docker compose -f deploy/docker-compose.yml --profile demo ps
+          docker compose -f deploy/docker-compose.yml --profile demo logs --tail=200
+          exit 1
+
+      - name: wait for synth_state to start publishing
+        # The smoke binary asserts /api/snapshot/spx returns a non-empty
+        # body, so the synth_state publisher needs to have fanned out
+        # at least one state.<sym>.gex into NATS first.
+        run: sleep 5
+
+      - name: end-to-end smoke
+        run: go run ./scripts/smoke/e2e -url http://localhost:8080
+
+      - name: capture logs on failure
+        if: failure()
+        run: |
+          docker compose -f deploy/docker-compose.yml --profile demo ps
+          docker compose -f deploy/docker-compose.yml --profile demo logs --tail=300
+
+      - name: tear down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml --profile demo down -v

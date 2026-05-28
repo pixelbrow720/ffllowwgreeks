@@ -1,0 +1,73 @@
+services:
+  db:
+    image: timescale/timescaledb:2.16.1-pg15
+    container_name: ofa-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-options}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-options}
+      POSTGRES_DB: ${POSTGRES_DB:-options_db}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "5432"
+    # Cap container log files so a busy ingest day or a noisy traceback
+    # storm cannot fill the host disk. 5x100 MiB = 500 MiB ceiling per
+    # container — plenty of headroom for forensic inspection while
+    # bounding worst-case usage. (SRE-1, SRE-11)
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: flowgreeks-engine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override DATABASE_URL inside Compose to use the "db" service hostname
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-options}:${POSTGRES_PASSWORD:-options}@db:5432/${POSTGRES_DB:-options_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    # Resource limits: cap memory + CPU so a pathological day (Databento
+    # backlog flush, OPRA reconnect storm) can OOM the container without
+    # taking the host (and Postgres alongside) with it. ``reservations``
+    # keeps the scheduler from over-committing. (SRE-1)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+    # Raise the open-file ceiling — every WS subscriber is one fd, plus
+    # writer pools, plus DB connections. The container default of 1024
+    # is uncomfortably close to ``MAX_WS_CONNECTIONS_PER_KEY * keys``
+    # under fan-out scenarios. (SRE-1)
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # Match db's log rotation so the json-file driver doesn't grow the
+    # host fs unbounded on a tracebacks-in-a-loop day. (SRE-1, SRE-11)
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  db_data:

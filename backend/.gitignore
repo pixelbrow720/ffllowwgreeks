@@ -1,0 +1,50 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+*.exe~
+go.work
+go.work.sum
+
+# Env / secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+secrets/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+coverage.out
+coverage.html
+
+# Logs / runtime
+*.log
+logs/
+tmp/
+.cache/
+
+# Docker volumes (mapped locally)
+.data/
+postgres-data/
+redis-data/
+nats-data/
+
+# Test artifacts
+testdata/output/
+*.prof

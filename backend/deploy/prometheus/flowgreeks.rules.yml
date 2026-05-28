@@ -1,0 +1,225 @@
+# Prometheus alerting rules for FlowGreeks.
+#
+# Pair with the metrics emitted by api / compute / ingest. Each rule's
+# annotation explains what the operator should check first.
+#
+# Mount on prometheus via:
+#   rule_files:
+#     - /etc/prometheus/flowgreeks.rules.yml
+
+groups:
+  # ───────────────────────────── Pipeline liveness ────────────────────────
+  - name: flowgreeks-pipeline-liveness
+    interval: 30s
+    rules:
+      - alert: ComputeTicksStalled
+        expr: |
+          sum(rate(flowgreeks_compute_ticks_processed_total[2m])) == 0
+        for: 3m
+        labels:
+          severity: page
+          service: compute
+        annotations:
+          summary: "Compute is processing zero ticks/s for 3m"
+          description: |
+            No ticks observed in compute for 3 minutes. Check ingest is
+            connected to Databento and the NATS state.> stream is healthy.
+            Likely culprits: ingest down, NATS partition, gateway lockout.
+
+      - alert: AggregatorStuck
+        expr: |
+          rate(flowgreeks_compute_aggregator_iterations_total[2m]) < 0.5
+        for: 2m
+        labels:
+          severity: page
+          service: compute
+        annotations:
+          summary: "Aggregator iterations < 0.5/s for 2m (target ≥ 1/s)"
+          description: |
+            Compute aggregator loop is below its 1Hz target. Check for a
+            blocked send on the state writer or NATS publisher.
+
+      - alert: IngestNoArchiveWrites
+        expr: |
+          sum(rate(flowgreeks_archive_ticks_written_total[2m])) == 0
+        for: 5m
+        labels:
+          severity: warn
+          service: ingest
+        annotations:
+          summary: "Tick archive has had zero writes for 5m"
+          description: |
+            Either ingest is dead, or the archive writer can't reach
+            Postgres. Check ingest /metrics and Postgres availability.
+
+  # ───────────────────────────── Backpressure ─────────────────────────────
+  - name: flowgreeks-backpressure
+    interval: 30s
+    rules:
+      - alert: ArchiveTicksDropped
+        expr: |
+          rate(flowgreeks_archive_ticks_dropped_total[2m]) > 0
+        for: 2m
+        labels:
+          severity: warn
+          service: ingest
+        annotations:
+          summary: "Tick archive is dropping rows (Postgres can't keep up)"
+          description: |
+            ingest is producing faster than Timescale can absorb. Check
+            Postgres CPU, disk, and the archive writer batch size.
+
+      - alert: StateRowsDropped
+        expr: |
+          rate(flowgreeks_state_rows_dropped_total[2m]) > 0
+        for: 2m
+        labels:
+          severity: warn
+          service: compute
+        annotations:
+          summary: "Cold-path state writer is dropping rows"
+          description: |
+            Compute aggregator is publishing faster than dealer_state_1s
+            can absorb. Check Postgres health and StateWriter batch size.
+
+      - alert: StateFlushErrors
+        expr: |
+          rate(flowgreeks_state_flush_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+          service: compute
+        annotations:
+          summary: "State writer flush is failing"
+          description: |
+            COPY FROM into dealer_state_1s is erroring. Most likely
+            Postgres is down, the table is missing (migrate didn't
+            run), or Timescale chunk creation is failing.
+
+      - alert: WSDropsHigh
+        expr: |
+          sum(rate(flowgreeks_ws_drops_total[2m])) > 5
+        for: 2m
+        labels:
+          severity: warn
+          service: api
+        annotations:
+          summary: "WebSocket broker is dropping >5 events/s"
+          description: |
+            One or more WS clients are too slow to consume the broker
+            channel. Investigate by client (per-Subscriber Dropped
+            counter is incremented in lockstep). Consider lifting the
+            per-client buffer or kicking a slow connection.
+
+  # ───────────────────────────── HTTP surface ─────────────────────────────
+  - name: flowgreeks-http
+    interval: 30s
+    rules:
+      - alert: HTTPHighErrorRate
+        expr: |
+          (
+            sum(rate(flowgreeks_http_requests_total{status_class="5xx"}[5m]))
+            /
+            sum(rate(flowgreeks_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: page
+          service: api
+        annotations:
+          summary: "API 5xx error rate > 5% for 5m"
+          description: |
+            More than 5% of api responses are 5xx. Check api logs and
+            Postgres health (/api/snapshot 500 typically means cache
+            miss + downstream timeout).
+
+      - alert: HTTPLatencyP99High
+        expr: |
+          histogram_quantile(0.99,
+            sum by (route, le) (rate(flowgreeks_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warn
+          service: api
+        annotations:
+          summary: "API p99 latency > 1s on {{ $labels.route }}"
+          description: |
+            Tail latency spike. /api/backtest/run can legitimately spend
+            seconds; if it's another route, investigate.
+
+  # ───────────────────────────── Quote / IV health ────────────────────────
+  - name: flowgreeks-quote-quality
+    interval: 30s
+    rules:
+      - alert: IVSolverFailureRateHigh
+        expr: |
+          (
+            rate(flowgreeks_compute_iv_solver_failures_total[5m])
+            /
+            rate(flowgreeks_compute_iv_solver_attempts_total[5m])
+          ) > 0.20
+        for: 5m
+        labels:
+          severity: warn
+          service: compute
+        annotations:
+          summary: "IV solver failure rate > 20% for 5m"
+          description: |
+            Either the upstream quote book is bad (one-sided / stale),
+            the spot estimate is off, or the rate/yield assumption has
+            drifted. Inspect a sample tick stream and DefaultSolverConfig.
+
+  # ───────────────────────────── API-key auth surface ────────────────────
+  - name: flowgreeks-apikey
+    interval: 30s
+    rules:
+      - alert: APIKeyAuthFailureBurst
+        expr: |
+          sum(rate(flowgreeks_apikey_auth_attempts_total{result=~"unknown|missing"}[2m])) > 5
+        for: 2m
+        labels:
+          severity: warn
+          service: api
+        annotations:
+          summary: "API-key auth failure rate > 5/s for 2m"
+          description: |
+            Sustained authentication failures across the fleet. Most
+            commonly: a misconfigured client cycling a stale or revoked
+            secret. Check the audit log for unique IPs / keys being
+            tried, then coordinate with flowjob.id if a real user is
+            stuck. Distributed scanning should already be throttled by
+            the per-IP fallback rate limiter — this rule fires when
+            the aggregate rate suggests a coordinated probe.
+
+      - alert: APIKeyRevokedKeyAttempts
+        expr: |
+          increase(flowgreeks_apikey_auth_attempts_total{result="revoked"}[5m]) > 3
+        for: 5m
+        labels:
+          severity: page
+          service: api
+        annotations:
+          summary: "Revoked API key still being presented (>3 attempts in 5m)"
+          description: |
+            A key that flowjob.id has revoked is still being used by a
+            client. Either the client hasn't picked up the revocation
+            yet (transient — verify by checking the parent_user_id in
+            the audit log) or the secret has been leaked and the
+            attacker is still trying. Investigate the audit log for
+            the time window.
+
+      - alert: APIKeyRateLimitedBurst
+        expr: |
+          rate(flowgreeks_apikey_rate_limited_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warn
+          service: api
+        annotations:
+          summary: "Per-key rate limit tripping > 1/s for 10m"
+          description: |
+            Either a client is misbehaving or a tier's rate budget is
+            too tight. Check which key id is hitting it via the audit
+            log; coordinate with flowjob.id to upgrade the rate budget
+            or rate-limit the client side.

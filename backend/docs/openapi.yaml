@@ -1,0 +1,643 @@
+openapi: 3.1.0
+info:
+  title: FlowGreeks API
+  version: 0.2.0
+  description: |
+    REST + WebSocket surface for FlowGreeks ("Read the Dealer") — real-time
+    options flow + dealer positioning intelligence for 0DTE SPX & NDX.
+
+    FlowGreeks runs as an add-on inside flowjob.id. The parent site owns
+    user accounts, billing, and add-on activation; this binary
+    authenticates inbound traffic with opaque API keys provisioned by
+    the parent site.
+
+    Auth: send the secret as `Authorization: Bearer <secret>` or
+    `X-API-Key: <secret>`. Bearer wins when both are present. The
+    protected surface (`/api/simulate/*`, `/api/alerts/*`,
+    `/api/backtest/run`) requires a valid key when `APIKEY_ENABLED=true`;
+    public endpoints (`/api/snapshot/*`, `/api/levels/*`, health, metrics)
+    never require auth.
+
+    Rate limit: per-key budgets are stored on the api_keys row
+    (rate_limit_rps, rate_burst). Anonymous (no key resolved) traffic
+    falls back to per-IP at 1 rps / 30 burst. Exceeding the budget
+    returns 429 + `Retry-After`.
+
+    WebSocket endpoints (`/ws/live`, `/ws/replay/{session_id}`) are not
+    described in this spec — see [docs/reference/01-data-pipeline.md](
+    ../docs/reference/01-data-pipeline.md).
+  contact:
+    name: FlowGreeks
+    url: https://flowgreeks.example
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8080
+    description: Local dev (docker compose default)
+
+tags:
+  - name: System
+    description: Health + diagnostics
+  - name: State
+    description: Live dealer state read surface
+  - name: Simulator
+    description: What-If Dealer Simulator
+  - name: Backtest
+    description: Strategy validation against historical state archive
+  - name: Alerts
+    description: User-defined trigger rules
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness probe (legacy alias for /health/live)
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /health/live:
+    get:
+      tags: [System]
+      summary: Liveness probe (k8s canonical name)
+      description: |
+        Identical semantics to `/health` — returns 200 as long as the
+        process is up. Use this as the k8s `livenessProbe` target.
+        For dependency reachability use `/health/ready`.
+      operationId: getLive
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /health/ready:
+    get:
+      tags: [System]
+      summary: Readiness probe (NATS + Postgres reachability)
+      description: |
+        Returns 200 with per-dependency status when all dependencies
+        are reachable, 503 otherwise. Use this — not `/health` — as
+        the orchestrator's readiness target so the service is removed
+        from rotation during transient downstream blips without
+        triggering a liveness restart.
+      operationId: getReadiness
+      responses:
+        "200":
+          description: All deps healthy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadinessResponse" }
+        "503":
+          description: One or more deps unhealthy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadinessResponse" }
+
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics endpoint
+      description: |
+        Exposes the standard Prometheus text exposition format for the
+        api binary. Compute and ingest expose their own /metrics on
+        :9092 and :9091 respectively. The full metric catalog —
+        including the alert rules paired with each — lives in
+        deploy/prometheus/flowgreeks.rules.yml.
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus exposition
+          content:
+            text/plain: {}
+
+  /api/snapshot/{symbol}:
+    get:
+      tags: [State]
+      summary: Latest full state snapshot for a symbol
+      operationId: getSnapshot
+      parameters:
+        - $ref: "#/components/parameters/Symbol"
+      responses:
+        "200":
+          description: Latest snapshot — same shape as `state.<sym>.gex` NATS payload
+          headers:
+            X-Snapshot-Ts-Ns:
+              schema:
+                type: string
+                format: date-time
+              description: RFC3339 timestamp of the snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StateSnapshot"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NoStateYet" }
+
+  /api/levels/{symbol}:
+    get:
+      tags: [State]
+      summary: Key levels projection (cheap)
+      description: Just walls + flip + expected move from the latest snapshot. Use this when you don't need the full strike matrix.
+      operationId: getLevels
+      parameters:
+        - $ref: "#/components/parameters/Symbol"
+      responses:
+        "200":
+          description: Projected levels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LevelsResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NoStateYet" }
+
+  /api/simulate/{symbol}:
+    post:
+      tags: [Simulator]
+      summary: What-If Dealer Simulator
+      description: Runs the dealer-positioning simulator against the latest snapshot. Returns forced delta / notional plus top contributing strikes.
+      operationId: postSimulate
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Symbol"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulateRequest"
+      responses:
+        "200":
+          description: Simulator result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulateResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NoStateYet" }
+        "429":
+          description: Rate limit exceeded for this key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/backtest/run:
+    post:
+      tags: [Backtest]
+      summary: Run a strategy against the historical dealer-state archive
+      description: |
+        Replays the `dealer_state_1s` archive over `[from, to)` and evaluates
+        an entry/exit predicate pair built from the same triple
+        (`kind`, `threshold`, `string_arg`) saved alert rules use.
+
+        Hard limits: range ≤ 31 days, 30s deadline, snapshots returned in
+        ascending ts.
+      operationId: postBacktestRun
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BacktestRequest"
+      responses:
+        "200":
+          description: Strategy run summary + trade list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BacktestResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: No state rows in range
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Rate limit exceeded for this key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Backtest disabled (postgres unavailable at boot)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "504":
+          description: Backtest exceeded the 30s budget
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/alerts/rules:
+    get:
+      tags: [Alerts]
+      summary: List alert rules for the current user (paginated)
+      operationId: listAlertRules
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+          description: Page size, clamped to [1, 200]
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Paginated rule list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRuleList"
+    post:
+      tags: [Alerts]
+      summary: Create or replace an alert rule
+      operationId: upsertAlertRule
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AlertRule" }
+      responses:
+        "204": { description: Stored }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/alerts/rules/{id}:
+    delete:
+      tags: [Alerts]
+      summary: Delete an alert rule
+      operationId: deleteAlertRule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Removed }
+        "404":
+          description: Rule not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/signup:
+    description: |
+      Removed in 0.2.0. FlowGreeks no longer manages user accounts —
+      authentication is via API keys provisioned by flowjob.id.
+
+  /auth/login:
+    description: Removed in 0.2.0. Use API keys provisioned by flowjob.id.
+
+  /auth/me:
+    description: Removed in 0.2.0.
+
+  /auth/refresh:
+    description: Removed in 0.2.0. API keys do not rotate; revoke + re-provision instead.
+
+  /auth/logout:
+    description: Removed in 0.2.0. Revoke the API key from flowjob.id.
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Opaque API key provisioned by flowjob.id. Either this header
+        or `Authorization: Bearer <secret>` is accepted; Bearer wins
+        when both are present.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        Opaque API key (NOT a JWT). Same secret as X-API-Key.
+
+  parameters:
+    Symbol:
+      in: path
+      name: symbol
+      required: true
+      schema:
+        type: string
+        enum: [spx, ndx, SPX, NDX]
+      description: Underlying ticker (case-insensitive)
+
+  responses:
+    BadRequest:
+      description: Bad input
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NoStateYet:
+      description: Compute hasn't published a snapshot yet
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status: { type: string, example: ok }
+        service: { type: string, example: api }
+
+    ReadinessResponse:
+      type: object
+      required: [status, service, deps]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        service: { type: string, example: api }
+        deps:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              ok: { type: boolean }
+              error: { type: string }
+          example:
+            nats: { ok: true }
+            postgres: { ok: false, error: "ping: connection refused" }
+
+    LevelsResponse:
+      type: object
+      properties:
+        spot: { type: number, format: double }
+        zero_gamma: { type: number, format: double }
+        call_wall: { type: number, format: double }
+        put_wall: { type: number, format: double }
+        expected_mv: { type: number, format: double }
+        net_gex: { type: number, format: double }
+        regime:
+          type: integer
+          description: "0=UNKNOWN, 1=SHORT_GAMMA, 2=LONG_GAMMA, 3=NEUTRAL"
+        ts_ns: { type: integer, format: int64 }
+
+    StateSnapshot:
+      type: object
+      description: Per-second dealer state (same wire shape as `state.<sym>.gex`)
+      properties:
+        ts_ns: { type: integer, format: int64 }
+        symbol: { type: integer, description: "1=SPX, 2=NDX" }
+        spot: { type: number, format: double }
+        basis_smooth: { type: number, format: double }
+        fut_front_sym: { type: string, example: ESM6 }
+        net_gex: { type: number, format: double }
+        zero_gamma: { type: number, format: double }
+        call_wall: { type: number, format: double }
+        put_wall: { type: number, format: double }
+        expected_mv: { type: number, format: double }
+        regime: { type: integer }
+        dpi: { $ref: "#/components/schemas/DPIBreakdown" }
+        flow_pulse: { $ref: "#/components/schemas/FlowPulse" }
+        charm_zone:
+          type: integer
+          description: "1=WEAK, 2=RISING, 3=PEAK, 4=FADING, 5=PIN"
+        charm_velocity_raw: { type: number, format: double }
+        pin: { $ref: "#/components/schemas/PinResult" }
+        strikes:
+          type: array
+          items: { $ref: "#/components/schemas/StrikeRow" }
+
+    DPIBreakdown:
+      type: object
+      properties:
+        composite: { type: number, format: double, minimum: 0, maximum: 100 }
+        net_gamma_sign: { type: number, format: double }
+        charm_velocity: { type: number, format: double }
+        vanna_sensitivity: { type: number, format: double }
+        time_to_close_decay: { type: number, format: double }
+        flow_concentration: { type: number, format: double }
+
+    FlowPulse:
+      type: object
+      properties:
+        gamma: { type: number, format: double }
+        charm: { type: number, format: double }
+        vanna: { type: number, format: double }
+        total: { type: number, format: double }
+
+    PinResult:
+      type: object
+      properties:
+        active: { type: boolean }
+        window_mins: { type: number, format: double }
+        top_strike: { type: number, format: double }
+        top_probability: { type: number, format: double }
+        candidates:
+          type: array
+          items: { $ref: "#/components/schemas/PinCandidate" }
+
+    PinCandidate:
+      type: object
+      properties:
+        strike: { type: number, format: double }
+        probability: { type: number, format: double }
+        gamma_strength: { type: number, format: double }
+        distance_factor: { type: number, format: double }
+        flow_persistence: { type: number, format: double }
+        time_factor: { type: number, format: double }
+
+    StrikeRow:
+      type: object
+      properties:
+        expiry:
+          type: integer
+          format: int32
+          description: YYYYMMDD
+        strike:
+          type: integer
+          format: int32
+          description: strike × 1000 (encode/decode helpers in feed package)
+        side: { type: integer, description: "1=CALL, 2=PUT" }
+        dealer_pos: { type: integer, format: int64 }
+        iv: { type: number, format: double }
+        gamma: { type: number, format: double }
+        charm: { type: number, format: double }
+        vanna: { type: number, format: double }
+        gex_notional: { type: number, format: double }
+
+    SimulateRequest:
+      type: object
+      properties:
+        spot_pct_change:
+          type: number
+          format: double
+          description: e.g. 0.01 = +1% spot move
+        duration_minutes: { type: number, format: double }
+        vol_pt_change:
+          type: number
+          format: double
+          description: e.g. 0.02 = +2 vol points
+
+    SimulateResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        spot: { type: number, format: double }
+        new_spot: { type: number, format: double }
+        duration_years: { type: number, format: double }
+        forced_delta: { type: number, format: double }
+        forced_notional: { type: number, format: double }
+        charm_aid: { type: number, format: double }
+        net_pressure: { type: number, format: double }
+        top_contributions:
+          type: array
+          items: { $ref: "#/components/schemas/StrikeContribution" }
+
+    StrikeContribution:
+      type: object
+      properties:
+        expiry: { type: integer, format: int32 }
+        strike: { type: number, format: double }
+        side: { type: string, enum: [C, P] }
+        old_delta: { type: number, format: double }
+        new_delta: { type: number, format: double }
+        delta_change: { type: number, format: double }
+        forced_notional: { type: number, format: double }
+
+    BacktestRequest:
+      type: object
+      required: [symbol, from, to, entry]
+      properties:
+        symbol: { type: string, enum: [spx, ndx, SPX, NDX] }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        direction: { type: string, enum: [long, short], default: long }
+        max_hold_min: { type: number, format: double }
+        cooldown_min: { type: number, format: double, default: 5 }
+        name: { type: string }
+        entry: { $ref: "#/components/schemas/RuleSpec" }
+        exit:
+          allOf:
+            - $ref: "#/components/schemas/RuleSpec"
+            - nullable: true
+
+    RuleSpec:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/RuleKind" }
+        threshold: { type: number, format: double }
+        string_arg: { type: string }
+
+    RuleKind:
+      type: string
+      enum:
+        - dpi_above
+        - dpi_below
+        - charm_zone
+        - regime
+        - pin_prob_above
+        - net_gex_above
+        - net_gex_below
+
+    BacktestResponse:
+      type: object
+      properties:
+        strategy: { type: string }
+        symbol: { type: string }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        count: { type: integer }
+        wins: { type: integer }
+        losses: { type: integer }
+        win_rate: { type: number, format: double }
+        mean_return: { type: number, format: double }
+        stddev: { type: number, format: double }
+        sharpe: { type: number, format: double }
+        sortino: { type: number, format: double }
+        max_dd: { type: number, format: double }
+        total_return: { type: number, format: double }
+        snapshots_evaluated: { type: integer }
+        trades:
+          type: array
+          items: { $ref: "#/components/schemas/Trade" }
+
+    Trade:
+      type: object
+      properties:
+        entry_ts: { type: string, format: date-time }
+        exit_ts: { type: string, format: date-time }
+        entry_spot: { type: number, format: double }
+        exit_spot: { type: number, format: double }
+        direction: { type: string, enum: [long, short] }
+        return_pct: { type: number, format: double }
+        held_sec: { type: number, format: double }
+        exit_reason: { type: string }
+
+    AlertRule:
+      type: object
+      required: [id, symbol, kind]
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        symbol: { type: integer, description: "1=SPX, 2=NDX" }
+        kind: { $ref: "#/components/schemas/RuleKind" }
+        threshold: { type: number, format: double }
+        string_arg: { type: string }
+        cooldown_ns: { type: integer, format: int64 }
+        sinks:
+          type: array
+          items: { type: string }
+        enabled: { type: boolean }
+
+    AlertRuleList:
+      type: object
+      required: [rules, total, offset, limit]
+      properties:
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/AlertRule" }
+        total:
+          type: integer
+          description: Total rules matching the owner filter, pre-pagination.
+        offset:
+          type: integer
+        limit:
+          type: integer

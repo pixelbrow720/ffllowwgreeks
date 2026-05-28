@@ -1,0 +1,246 @@
+name: flowgreeks
+
+# ──────────────────────────────────────────────────────────────────────
+# Full FlowGreeks stack. Three profiles:
+#
+#   default profile (no flag) — infra only: postgres + redis + nats
+#     docker compose up -d
+#
+#   --profile app                — infra + 4 binaries (api, ingest,
+#                                   compute, replay)
+#                                   needs DATABENTO_API_KEY in env
+#     docker compose --profile app up -d
+#
+#   --profile demo              — infra + api + synth_state publisher
+#                                   for frontend dev WITHOUT databento
+#     docker compose --profile demo up -d
+#
+# Migrations run as a one-shot sidecar via the `migrate` service. It
+# blocks app startup via depends_on: condition: service_completed_successfully.
+# ──────────────────────────────────────────────────────────────────────
+
+x-go-build: &go-build
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  restart: unless-stopped
+  env_file:
+    - ../.env
+
+x-app-env: &app-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  NATS_URL: nats://nats:4222
+  LOG_LEVEL: info
+  LOG_FORMAT: json
+
+services:
+  postgres:
+    image: timescale/timescaledb:2.16.1-pg15
+    container_name: fg-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowgreeks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowgreeks_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-flowgreeks}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flowgreeks} -d ${POSTGRES_DB:-flowgreeks}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: fg-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2-alpine
+    container_name: fg-nats
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot migration runner. Runs all up migrations in scripts/migrations
+  # then exits 0. App services depend on it via service_completed_successfully.
+  migrate:
+    profiles: ["app", "demo"]
+    image: migrate/migrate:v4.17.1
+    container_name: fg-migrate
+    restart: "no"
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://${POSTGRES_USER:-flowgreeks}:${POSTGRES_PASSWORD:-flowgreeks_dev_only}@postgres:5432/${POSTGRES_DB:-flowgreeks}?sslmode=disable"
+      - "up"
+    volumes:
+      - ../scripts/migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *go-build
+    profiles: ["app", "demo"]
+    container_name: fg-api
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BINARY: api
+    environment:
+      <<: *app-env
+      API_LISTEN_ADDR: ":8080"
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  ingest:
+    <<: *go-build
+    profiles: ["app"]
+    container_name: fg-ingest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BINARY: ingest
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  compute:
+    <<: *go-build
+    profiles: ["app"]
+    container_name: fg-compute
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BINARY: compute
+    environment:
+      <<: *app-env
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  replay:
+    <<: *go-build
+    profiles: ["app"]
+    container_name: fg-replay
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BINARY: replay
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Demo profile only. Publishes synthetic state.<sym>.gex + narrative.<sym>
+  # so frontend can be exercised without databento or live ingest.
+  synth-state:
+    profiles: ["demo"]
+    container_name: fg-synth-state
+    image: golang:1.25-alpine
+    working_dir: /src
+    command: ["go", "run", "./scripts/synth_state"]
+    environment:
+      NATS_URL: nats://nats:4222
+    volumes:
+      - ..:/src
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # Observability profile (opt-in). Pairs with the metrics + alert
+  # rules + dashboard JSON checked into deploy/. Bring up with
+  # `--profile obs` (or combine with app/demo).
+  prometheus:
+    profiles: ["obs", "app", "demo"]
+    container_name: fg-prometheus
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/flowgreeks.rules.yml:/etc/prometheus/flowgreeks.rules.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    profiles: ["obs", "app", "demo"]
+    container_name: fg-grafana
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_LOG_LEVEL: "warn"
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/flowgreeks-pipeline.json:/var/lib/grafana/dashboards/flowgreeks-pipeline.json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres-data:
+  redis-data:
+  nats-data:
+  prometheus-data:
+  grafana-data:

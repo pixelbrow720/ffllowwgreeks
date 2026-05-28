@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.vscode
+*.md
+docs/
+flowgreeks-mockup/
+.env
+.env.*
+*.log

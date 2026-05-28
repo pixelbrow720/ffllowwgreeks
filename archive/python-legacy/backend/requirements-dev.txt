@@ -1,0 +1,5 @@
+-r requirements.txt
+testcontainers[postgres]==4.8.2
+# Rev 12 SRE-16 — pip-tools provides ``pip-compile`` for hash-pinned
+# lockfile generation. Workflow documented in OPS.md §7b.
+pip-tools==7.4.1

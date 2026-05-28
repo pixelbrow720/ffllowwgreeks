@@ -1,0 +1,47 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+
+# Go
+backend/bin/
+backend/*.exe
+backend/*.test
+backend/*.out
+backend/coverage.txt
+backend/.hypothesis/
+backend/.pytest_cache/
+backend/.ruff_cache/
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/dist/
+web/build/
+web/*.tsbuildinfo
+web/dev.log
+
+# Python (legacy archive)
+archive/**/__pycache__/
+archive/**/.venv/
+archive/**/venv/
+archive/**/.pytest_cache/
+archive/**/.ruff_cache/
+archive/**/.mypy_cache/
+archive/**/.hypothesis/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build / cache
+*.log
+.cache/

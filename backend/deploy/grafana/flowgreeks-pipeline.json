@@ -1,0 +1,181 @@
+{
+  "title": "FlowGreeks — Pipeline Health",
+  "uid": "flowgreeks-pipeline",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["flowgreeks"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Prometheus",
+        "query": "prometheus",
+        "current": { "selected": true, "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Ticks ingested per second (compute)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (symbol,tick_type) (rate(flowgreeks_compute_ticks_processed_total[1m]))",
+          "legendFormat": "{{symbol}} / {{tick_type}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 2,
+      "title": "IV solver convergence",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(flowgreeks_compute_iv_solver_attempts_total[1m])",
+          "legendFormat": "attempts/s"
+        },
+        {
+          "expr": "rate(flowgreeks_compute_iv_solver_failures_total[1m])",
+          "legendFormat": "failures/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Aggregator pass duration (p50 / p95 / p99)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(flowgreeks_compute_aggregator_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(flowgreeks_compute_aggregator_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(flowgreeks_compute_aggregator_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 4,
+      "title": "Active strikes per symbol (IV cache size)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "flowgreeks_compute_active_strikes",
+          "legendFormat": "{{symbol}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "HTTP request rate (api)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (route,status_class) (rate(flowgreeks_http_requests_total[1m]))",
+          "legendFormat": "{{route}} {{status_class}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "HTTP request latency (p95)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (route,le) (rate(flowgreeks_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 7,
+      "title": "WS subscribers (live)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 24, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "flowgreeks_ws_subscribers" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "WS publishes / drops per second",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 6, "y": 24, "w": 18, "h": 6 },
+      "targets": [
+        {
+          "expr": "sum by (symbol,kind) (rate(flowgreeks_ws_published_total[1m]))",
+          "legendFormat": "publish {{symbol}}/{{kind}}"
+        },
+        {
+          "expr": "sum by (symbol,kind) (rate(flowgreeks_ws_drops_total[1m]))",
+          "legendFormat": "DROP {{symbol}}/{{kind}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Tick archive: rows written / dropped",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 30, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(flowgreeks_archive_ticks_written_total[1m])",
+          "legendFormat": "written/s"
+        },
+        {
+          "expr": "rate(flowgreeks_archive_ticks_dropped_total[1m])",
+          "legendFormat": "DROPPED/s"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "State archive: rows written / dropped + flush errors",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 30, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(flowgreeks_state_rows_written_total[1m])",
+          "legendFormat": "written/s"
+        },
+        {
+          "expr": "rate(flowgreeks_state_rows_dropped_total[1m])",
+          "legendFormat": "DROPPED/s"
+        },
+        {
+          "expr": "rate(flowgreeks_state_flush_errors_total[5m])",
+          "legendFormat": "flush errors/s"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg-base: #08080a;
+  --ink-base: #e4e4e7;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  background: var(--bg-base);
+  color: var(--ink-base);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  overflow-x: clip;
+}
+
+::selection {
+  background: #ff2a5b;
+  color: #08080a;
+}
+
+/* Tabular numbers for live data — keep digits aligned during updates */
+.tabnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+
+/* Subtle grid overlay used as background texture */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.bg-grid-fine {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.bg-noise {
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1, 0 0 0 0 1, 0 0 0 0 1, 0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 220px 220px;
+}
+
+/* Vignette/glow for hero */
+.radial-brand {
+  background: radial-gradient(circle at 30% 50%, rgba(255, 42, 91, 0.18), transparent 50%);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #08080a; }
+::-webkit-scrollbar-thumb { background: #26262a; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a40; }
+
+/* Hide scrollbar inside panels */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { scrollbar-width: none; }
+
+/* Pill with brand glow */
+.pill-brand {
+  background: linear-gradient(180deg, rgba(255, 42, 91, 0.16), rgba(255, 42, 91, 0.06));
+  border: 1px solid rgba(255, 42, 91, 0.3);
+  color: #ff8aa5;
+  box-shadow: 0 0 24px -8px rgba(255, 42, 91, 0.4) inset;
+}
+
+/* Card glow on hover */
+.glow-hover {
+  transition: box-shadow 0.4s ease, border-color 0.4s ease, transform 0.4s ease;
+}
+.glow-hover:hover {
+  border-color: rgba(255, 42, 91, 0.4);
+  box-shadow: 0 0 0 1px rgba(255, 42, 91, 0.25), 0 24px 80px -28px rgba(255, 42, 91, 0.35);
+}
+
+/* Text gradient brand */
+.text-gradient-brand {
+  background: linear-gradient(180deg, #fff 0%, #ff8aa5 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Slim divider */
+.hr-line {
+  height: 1px;
+  background: linear-gradient(to right, transparent, #26262a 20%, #26262a 80%, transparent);
+}
+
+/* DPI gauge ring shadow */
+.dpi-glow {
+  filter: drop-shadow(0 0 8px rgba(255, 42, 91, 0.35));
+}

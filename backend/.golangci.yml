@@ -1,0 +1,93 @@
+# golangci-lint config for FlowGreeks. Pinned ruleset so CI is
+# deterministic across `latest` upgrades.
+#
+# Run locally:
+#   golangci-lint run ./...
+#
+# CI runs this via .github/workflows/test.yml.
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    # bug-finders
+    - bodyclose     # response body leaks
+    - errcheck      # unchecked errors
+    - govet         # built-in vet
+    - ineffassign   # ineffectual assignments
+    - staticcheck   # SA*/ST*/S*/QF* (incl. former gosimple + unused)
+
+    # style + correctness
+    - gocritic
+    - misspell
+    - revive
+    - unconvert
+
+    # security
+    - gosec
+
+  settings:
+    errcheck:
+      # Fire-and-forget writes / encodes / NATS publishes are explicit
+      # design choices on hot paths and best-effort log lines.
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Fprint
+
+    gosec:
+      excludes:
+        - G104   # already covered by errcheck whitelist
+        - G115   # int overflow on conversion (we cast int16/uint32 deliberately)
+        - G404   # weak rng (synthetic generator only)
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment   # too noisy; chase only when profiler points there
+
+    misspell:
+      locale: US
+
+    revive:
+      rules:
+        - name: var-naming
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: exported
+          disabled: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - gocritic
+      - path: scripts/
+        linters:
+          - errcheck
+          - gosec
+          - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - flowgreeks
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

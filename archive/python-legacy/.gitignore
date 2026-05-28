@@ -1,0 +1,75 @@
+# ──────────────────────────────────────────────────────────────────────
+# Project-local .gitignore for flowgreeks-engine (backend).
+# ──────────────────────────────────────────────────────────────────────
+
+# ── Python (backend) ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.venv/
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+
+# ── Env files ─────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+backend/.env
+!.env.example
+!.env.sample
+!*.env.example
+
+# ── Editors / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── AI assistants ─────────────────────────────────────────────────────
+.claude/
+.cursor/
+.windsurf/
+
+# ── Docker / data ─────────────────────────────────────────────────────
+.docker/
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# ── Archives ──────────────────────────────────────────────────────────
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# ── Misc ──────────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
+*.pid

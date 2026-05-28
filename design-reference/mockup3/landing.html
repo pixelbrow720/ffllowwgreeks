@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1280" />
+  <title>FlowGreeks — Read the Dealer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="_v3.css">
+  <style>
+    /* page-local layout */
+    .hero { position: relative; padding: 140px 0 100px; overflow: hidden; }
+    .hero-aurora-tint { position: absolute; inset: 0; background: radial-gradient(ellipse 60% 40% at 50% 0%, rgba(99,102,241,0.18), transparent 70%); pointer-events: none; }
+
+    .pre-tag { display: inline-flex; align-items: center; gap: 10px; padding: 6px 12px 6px 8px; border: 1px solid var(--line); border-radius: 999px; background: rgba(13,13,18,0.6); backdrop-filter: blur(10px); font-size: 12px; color: var(--fg-2); }
+
+    .hero-title { font-family: var(--font-display); font-size: clamp(52px, 7vw, 96px); line-height: 0.98; letter-spacing: -0.04em; font-weight: 500; max-width: 1100px; }
+    .hero-title .em { color: var(--fg-3); font-weight: 400; font-style: normal; }
+    .hero-title .glow {
+      background: linear-gradient(135deg, #a5b4fc 0%, #fafafa 30%, #6ee7b7 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    .hero-data {
+      max-width: 1180px; margin: 0 auto; position: relative;
+      border-radius: var(--r-5);
+      box-shadow: var(--shadow-elev), 0 0 80px -10px rgba(99,102,241,0.18);
+    }
+
+    .hero-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-bottom: 1px solid var(--line-faint); }
+    .hero-strip .cell { padding: var(--s-5); border-right: 1px solid var(--line-faint); }
+    .hero-strip .cell:last-child { border-right: none; }
+    .hero-strip .lbl { font-size: 10.5px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 500; }
+    .hero-strip .val { font-family: var(--font-mono); font-size: 30px; font-weight: 500; line-height: 1.05; margin-top: 4px; letter-spacing: -0.015em; font-feature-settings: "tnum"; }
+    .hero-strip .sub { font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); margin-top: 6px; }
+
+    /* gex bars in hero */
+    .hero-gex { display: flex; align-items: end; gap: 3px; height: 92px; }
+    .gb { flex: 1; min-width: 0; border-radius: 1px 1px 0 0; opacity: 0.65; transition: opacity var(--dur-2); }
+    .gb:hover { opacity: 1; }
+    .gb.long  { background: linear-gradient(180deg, var(--accent-long), rgba(16,185,129,0.4)); }
+    .gb.short { background: linear-gradient(180deg, var(--accent-short), rgba(239,68,68,0.4)); }
+    .gb.spot  { background: var(--fg-1); height: 6px !important; align-self: end; opacity: 1; }
+    .gb.wall  { box-shadow: 0 0 0 1px currentColor; opacity: 1; }
+
+    /* thesis section */
+    .thesis-rail { position: relative; }
+
+    /* pipeline horizontal cards */
+    .pipe { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--r-5); overflow: hidden; background: var(--bg-1); position: relative; }
+    .pipe-cell { padding: var(--s-6); border-right: 1px solid var(--line-faint); position: relative; }
+    .pipe-cell:last-child { border-right: none; }
+    .pipe-cell .step-num { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+    .pipe-cell h3 { font-size: 16px; font-weight: 500; color: var(--fg-0); margin-top: 8px; letter-spacing: -0.012em; }
+    .pipe-cell p { font-size: 12.5px; color: var(--fg-2); margin-top: 8px; line-height: 1.55; }
+    .pipe-cell code { font-family: var(--font-mono); font-size: 11px; color: var(--fg-1); background: var(--bg-2); padding: 1px 5px; border-radius: 3px; }
+    /* connecting beam */
+    .pipe::before {
+      content: "";
+      position: absolute; top: 50%; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(99,102,241,0.45) 20%, rgba(110,231,183,0.45) 80%, transparent);
+      pointer-events: none;
+      transform: translateY(-50%);
+      opacity: 0.5;
+    }
+
+    .latency-cell {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: var(--s-3) var(--s-4);
+      background: var(--bg-1);
+      border: 1px solid var(--line-faint);
+      border-radius: var(--r-3);
+    }
+    .latency-cell .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-3); font-weight: 500; }
+    .latency-cell .val { font-family: var(--font-mono); font-size: 17px; color: var(--fg-0); font-weight: 500; letter-spacing: -0.01em; }
+    .latency-cell .bar { height: 3px; background: var(--accent-long); border-radius: 1px; width: var(--w); margin-top: 6px; }
+
+    /* dealer dual viz preview */
+    .dealer-preview { display: grid; grid-template-columns: 2fr 1fr; gap: var(--s-4); }
+
+    .spine-row { display: flex; align-items: center; gap: 8px; height: 22px; }
+    .spine-row .lbl { width: 38px; flex-shrink: 0; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); text-align: right; }
+    .spine-row .lbl.wall { color: var(--fg-1); }
+    .spine-row .bar { height: 8px; flex: 1; max-width: var(--w); border-radius: 1px; opacity: 0.75; transition: opacity var(--dur-2); }
+    .spine-row .bar:hover { opacity: 1; }
+    .spine-row .bar.long { background: var(--accent-long); }
+    .spine-row .bar.short { background: var(--accent-short); }
+    .spine-row .bar.wall { box-shadow: 0 0 0 1px currentColor; opacity: 0.95; }
+    .spine-row.spot { background: rgba(255,255,255,0.04); border-radius: 2px; }
+    .spine-row.spot .lbl { color: var(--fg-0); font-weight: 600; }
+    .spot-mark { flex: 1; height: 1px; background: var(--fg-0); position: relative; }
+    .spot-mark::after { content: ""; position: absolute; right: 0; top: -3px; width: 0; height: 0; border-style: solid; border-width: 3.5px 0 3.5px 6px; border-color: transparent transparent transparent var(--fg-0); }
+
+    .dpi-row { display: grid; grid-template-columns: 130px 1fr 28px; gap: 10px; align-items: center; }
+    .dpi-row .lbl { font-size: 11px; color: var(--fg-2); }
+    .dpi-row .bar { height: 4px; background: linear-gradient(90deg, var(--fg-4), var(--fg-1)); border-radius: 1px; width: var(--w); }
+    .dpi-row .val { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-1); text-align: right; font-feature-settings: "tnum"; }
+
+    .zones { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
+    .zone {
+      padding: 10px 8px; text-align: center; font-size: 10px; letter-spacing: 0.08em; font-weight: 500;
+      border-radius: 2px; background: var(--bg-2); color: var(--fg-3); border: 1px solid var(--line-faint);
+    }
+    .zone.past { color: var(--fg-2); }
+    .zone.now { background: rgba(245,158,11,0.10); color: var(--accent-warn); border-color: rgba(245,158,11,0.4); }
+
+    /* compact code preview block */
+    .code-block {
+      font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+      background: var(--bg-0); padding: var(--s-5);
+      border-radius: var(--r-3); border: 1px solid var(--line-faint);
+      color: var(--fg-1); overflow-x: auto;
+    }
+    .code-block .c-com { color: var(--fg-3); }
+    .code-block .c-key { color: #6ee7b7; }
+    .code-block .c-str { color: var(--accent-warn); }
+  </style>
+</head>
+<body>
+
+<!-- ─── TOPBAR ─── -->
+<div class="topbar">
+  <div class="container topbar-inner">
+    <a href="landing.html" class="brand">
+      <span class="brand-mark"></span>
+      <span>FlowGreeks</span>
+      <span class="pill pill-mono" style="margin-left: 8px; font-size: 10px; padding: 2px 7px;">v0.2 · ADD-ON</span>
+    </a>
+    <nav class="nav">
+      <a href="#thesis">Thesis</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#dealer">Dealer state</a>
+      <a href="#integrate">Integrate</a>
+      <a href="dashboard.html" class="active">Dashboard</a>
+    </nav>
+    <div class="row gap-2">
+      <button data-open-palette class="btn btn-ghost btn-sm">
+        Search
+        <span class="kbd">⌘</span><span class="kbd">K</span>
+      </button>
+      <a href="dashboard.html" class="btn btn-primary btn-sm">
+        Open terminal
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ─── HERO ─── -->
+<section class="hero">
+  <div class="lamp"></div>
+  <div class="grid-bg"></div>
+  <div class="hero-aurora-tint"></div>
+  <div class="stars"></div>
+
+  <div class="container relative" style="z-index: 2;">
+
+    <div class="reveal in">
+      <span class="pre-tag">
+        <span class="dot dot-long dot-pulse"></span>
+        <span class="t-mono" style="letter-spacing: 0.06em; color: var(--fg-2); font-size: 11px;">LIVE · 0DTE SPX & NDX</span>
+        <span style="color: var(--fg-4);">·</span>
+        <span class="t-mono" style="font-size: 11px; color: var(--fg-3);">part of <span class="fg-1">flowjob.id</span></span>
+      </span>
+    </div>
+
+    <h1 class="hero-title mt-8" style="position: relative;">
+      <span data-split>Read the dealer</span>
+      <br>
+      <span class="em" data-split>before the move</span>
+      <br>
+      <span class="glow" data-split>happens.</span>
+    </h1>
+
+    <p class="t-lead mt-6 reveal-blur" style="max-width: 640px;">
+      FlowGreeks compiles OPRA pillar quotes + GLBX futures into dealer
+      positioning state at 1Hz. We don't show you what dealers <em>have</em> —
+      we show you what they <em>must do next</em>, in dollar notional.
+    </p>
+
+    <div class="row mt-10 reveal-blur" style="gap: 12px;">
+      <a href="dashboard.html" class="btn btn-primary btn-lg">
+        Open the terminal
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </a>
+      <a href="#thesis" class="btn btn-glow btn-lg">
+        <span>Read the thesis</span>
+      </a>
+    </div>
+
+    <!-- Hero data card -->
+    <div class="hero-data mt-20 reveal-blur card spotlight" style="padding: 0;">
+      <div class="card-hd">
+        <div class="row-tight">
+          <span data-hyper class="t-mono" style="font-size: 11px; color: var(--fg-3);">SPX · 0DTE</span>
+          <span class="t-mono" style="font-size: 11px; color: var(--fg-4);">·</span>
+          <span class="t-mono" style="font-size: 11px; color: var(--fg-2);">14:32:07 ET</span>
+          <span class="dot dot-long dot-pulse" style="margin-left: 8px;"></span>
+        </div>
+        <div class="row gap-3">
+          <span class="pill pill-mono">SPOT <span data-live>5810.42</span></span>
+          <span class="pill pill-short pill-mono">SHORT γ</span>
+          <span class="pill pill-warn pill-mono">CHARM PEAK</span>
+        </div>
+      </div>
+
+      <div class="hero-strip">
+        <div class="cell">
+          <div class="lbl">Net GEX</div>
+          <div class="val fg-short" data-live>
+            <span data-ticker="-3.84" data-prefix="−$" data-suffix="B" data-decimals="2">−$3.84B</span>
+          </div>
+          <div class="sub">↓ flipped 09:47 ET</div>
+        </div>
+        <div class="cell">
+          <div class="lbl">DPI Composite</div>
+          <div class="val fg-0" data-live>
+            <span data-ticker="82" data-decimals="0">82</span>
+          </div>
+          <div class="sub">↑ +14 in 30m</div>
+        </div>
+        <div class="cell">
+          <div class="lbl">Forced flow · 15m</div>
+          <div class="val fg-long" data-live>
+            <span data-ticker="1.24" data-prefix="+$" data-suffix="B" data-decimals="2">+$1.24B</span>
+          </div>
+          <div class="sub">est. dealer hedge to BUY</div>
+        </div>
+        <div class="cell">
+          <div class="lbl">Pin probability</div>
+          <div class="val fg-0" data-live>5810 · <span data-ticker="41" data-suffix="%" data-decimals="0">41%</span></div>
+          <div class="sub">3 candidates active</div>
+        </div>
+      </div>
+
+      <div style="padding: var(--s-5);">
+        <div class="spread">
+          <span class="t-tiny">GEX by strike (visible: 5760 → 5860)</span>
+          <span class="t-mono" style="font-size: 11px; color: var(--fg-3);">spot anchored</span>
+        </div>
+        <div class="hero-gex mt-3">
+          <div class="gb short" style="height: 22%;"></div>
+          <div class="gb short" style="height: 38%;"></div>
+          <div class="gb short" style="height: 54%;"></div>
+          <div class="gb short" style="height: 48%;"></div>
+          <div class="gb short" style="height: 72%;"></div>
+          <div class="gb short" style="height: 62%;"></div>
+          <div class="gb short" style="height: 86%;"></div>
+          <div class="gb short wall" style="height: 100%; color: var(--accent-short);"></div>
+          <div class="gb short" style="height: 68%;"></div>
+          <div class="gb short" style="height: 44%;"></div>
+          <div class="gb spot"></div>
+          <div class="gb long" style="height: 32%;"></div>
+          <div class="gb long" style="height: 58%;"></div>
+          <div class="gb long" style="height: 72%;"></div>
+          <div class="gb long wall" style="height: 88%; color: var(--accent-long);"></div>
+          <div class="gb long" style="height: 64%;"></div>
+          <div class="gb long" style="height: 42%;"></div>
+          <div class="gb long" style="height: 28%;"></div>
+          <div class="gb long" style="height: 20%;"></div>
+          <div class="gb long" style="height: 12%;"></div>
+        </div>
+        <div class="spread mt-3 t-mono" style="font-size: 10.5px; color: var(--fg-3);">
+          <span>5760</span><span>5780</span><span style="color: var(--fg-1);">5810 · spot</span><span>5840</span><span>5860</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── MARQUEE TAPE ─── -->
+<section class="marquee-wrap">
+  <div class="marquee">
+    <span class="marquee-item"><span class="label">SPX</span> <span class="fg-0">5810.42</span> <span style="color: var(--accent-long)">+0.31%</span></span>
+    <span class="marquee-item"><span class="label">Net GEX</span> <span class="fg-short">−$3.84B</span></span>
+    <span class="marquee-item"><span class="label">DPI</span> <span class="fg-0">82</span> <span style="color: var(--accent-warn)">↑</span></span>
+    <span class="marquee-item"><span class="label">Charm</span> <span class="fg-0">PEAK</span></span>
+    <span class="marquee-item"><span class="label">Forced</span> <span class="fg-long">+$1.24B BUY</span></span>
+    <span class="marquee-item"><span class="label">Pin</span> <span class="fg-0">5810 · 41%</span></span>
+    <span class="marquee-item"><span class="label">NDX</span> <span class="fg-0">20184.6</span> <span style="color: var(--accent-short)">−0.14%</span></span>
+    <span class="marquee-item"><span class="label">Net GEX</span> <span class="fg-short">−$1.62B</span></span>
+    <span class="marquee-item"><span class="label">DPI</span> <span class="fg-0">71</span></span>
+    <span class="marquee-item"><span class="label">VIX</span> <span class="fg-0">14.21</span></span>
+    <span class="marquee-item"><span class="label">ES Basis</span> <span class="fg-0">+5.84</span></span>
+    <span class="marquee-item"><span class="label">SPX 0DTE</span> <span class="fg-2">EXP TODAY</span></span>
+    <!-- duplicate for seamless loop -->
+    <span class="marquee-item"><span class="label">SPX</span> <span class="fg-0">5810.42</span> <span style="color: var(--accent-long)">+0.31%</span></span>
+    <span class="marquee-item"><span class="label">Net GEX</span> <span class="fg-short">−$3.84B</span></span>
+    <span class="marquee-item"><span class="label">DPI</span> <span class="fg-0">82</span> <span style="color: var(--accent-warn)">↑</span></span>
+    <span class="marquee-item"><span class="label">Charm</span> <span class="fg-0">PEAK</span></span>
+    <span class="marquee-item"><span class="label">Forced</span> <span class="fg-long">+$1.24B BUY</span></span>
+    <span class="marquee-item"><span class="label">Pin</span> <span class="fg-0">5810 · 41%</span></span>
+    <span class="marquee-item"><span class="label">NDX</span> <span class="fg-0">20184.6</span> <span style="color: var(--accent-short)">−0.14%</span></span>
+    <span class="marquee-item"><span class="label">Net GEX</span> <span class="fg-short">−$1.62B</span></span>
+    <span class="marquee-item"><span class="label">DPI</span> <span class="fg-0">71</span></span>
+    <span class="marquee-item"><span class="label">VIX</span> <span class="fg-0">14.21</span></span>
+    <span class="marquee-item"><span class="label">ES Basis</span> <span class="fg-0">+5.84</span></span>
+    <span class="marquee-item"><span class="label">SPX 0DTE</span> <span class="fg-2">EXP TODAY</span></span>
+  </div>
+</section>
+
+<!-- ─── THESIS ─── -->
+<section id="thesis" class="thesis-rail" style="padding: 140px 0; position: relative;">
+  <div class="tracing-beam" style="left: max(24px, calc((100vw - 1320px) / 2 + 24px));"></div>
+  <div class="container">
+    <div style="max-width: 720px;">
+      <span class="t-tiny">01 · Thesis</span>
+      <h2 class="t-h1 mt-4 reveal-blur">
+        Dealers don't choose to hedge.
+        <br><span style="color: var(--fg-3);">Math chooses for them.</span>
+      </h2>
+      <p class="t-lead mt-6 reveal">
+        Every option contract on a dealer's book has a delta that drifts as
+        spot moves, time decays, and IV breathes. The dealer can't ignore
+        the drift — they are short volatility, mark-to-market, and sized
+        beyond what discretion can absorb. So they buy futures. They sell
+        futures. Mechanically. Predictably. <em>Knowably.</em>
+      </p>
+      <p class="t-body mt-4 reveal" style="color: var(--fg-2);">
+        FlowGreeks reconstructs the dealer's book from public OPRA prints
+        + open interest, computes their forced flow window forward, and
+        publishes it before the move clears the tape.
+      </p>
+    </div>
+
+    <div class="grid-3 mt-16 reveal-stagger">
+      <div class="card glare card-pad-lg spotlight">
+        <div class="t-tiny">Predictive forced flow</div>
+        <h3 class="t-h3 mt-3" style="font-size: 18px;">Dollars, not vibes.</h3>
+        <p class="t-muted mt-3" style="font-size: 13px; line-height: 1.65;">
+          Translate dealer position into the dollar notional they have to
+          execute over the next 15 / 30 / 60 minutes. SpotGamma shows you
+          gamma; we show you the order they're about to send.
+        </p>
+      </div>
+      <div class="card glare card-pad-lg spotlight">
+        <div class="t-tiny">Charm Clock</div>
+        <h3 class="t-h3 mt-3" style="font-size: 18px;">Time is a force.</h3>
+        <p class="t-muted mt-3" style="font-size: 13px; line-height: 1.65;">
+          Five intraday zones — WEAK, RISING, PEAK, FADING, PIN — based on
+          aggregated charm velocity. Tells you when dealer hedging is
+          accelerating, plateauing, or capitulating.
+        </p>
+      </div>
+      <div class="card glare card-pad-lg spotlight">
+        <div class="t-tiny">0DTE only</div>
+        <h3 class="t-h3 mt-3" style="font-size: 18px;">Surface ≠ noise.</h3>
+        <p class="t-muted mt-3" style="font-size: 13px; line-height: 1.65;">
+          We don't watch 3,500 tickers. We watch 2 — SPX and NDX 0DTE,
+          the chains where dealer hedging actually moves index futures.
+          Everything else is decoration.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PIPELINE ─── -->
+<section id="pipeline" style="padding: 100px 0; background: linear-gradient(180deg, transparent, rgba(99,102,241,0.025), transparent);">
+  <div class="container">
+    <span class="t-tiny">02 · Pipeline</span>
+    <h2 class="t-h1 mt-4 reveal-blur">From wire to signal in under one second.</h2>
+    <p class="t-lead mt-4 reveal" style="max-width: 580px;">
+      Five stages, one Postgres, one NATS bus, one binary per role. Built
+      in Go for the latency and the simplicity.
+    </p>
+
+    <div class="pipe mt-16 reveal-stagger">
+      <div class="pipe-cell">
+        <span class="step-num">01</span>
+        <h3>Ingest</h3>
+        <p>OPRA pillar + GLBX MDP3 over Databento WebSocket. 90-byte fixed-layout encoder, zero-alloc hot path.</p>
+      </div>
+      <div class="pipe-cell">
+        <span class="step-num">02</span>
+        <h3>Normalize</h3>
+        <p>Vendor records → typed Tick → NATS subjects. <code>ticks.&lt;sym&gt;.&lt;type&gt;</code></p>
+      </div>
+      <div class="pipe-cell">
+        <span class="step-num">03</span>
+        <h3>Compute</h3>
+        <p>BS pricing 105ns. IV solver 1.03µs (Brent + warm-start). Greeks 259ns. GEX 5.2µs / 200 strikes.</p>
+      </div>
+      <div class="pipe-cell">
+        <span class="step-num">04</span>
+        <h3>Aggregate</h3>
+        <p>1Hz aggregator publishes <code>state.&lt;sym&gt;.gex</code> + archives <code>dealer_state_1s</code>.</p>
+      </div>
+      <div class="pipe-cell">
+        <span class="step-num">05</span>
+        <h3>Distribute</h3>
+        <p>REST snapshots + WebSocket fanout. <code>/ws/live</code> drop-on-slow, 15s heartbeat.</p>
+      </div>
+    </div>
+
+    <!-- Latency budget -->
+    <div class="card beam mt-8 card-pad-lg spotlight">
+      <div class="spread">
+        <div>
+          <div class="t-tiny">Per-stage latency · achieved (zero-alloc hot path)</div>
+          <div class="t-h3 mt-2">Wire → WebSocket: target &lt;100ms p99</div>
+        </div>
+        <span class="pill pill-long pill-mono">all green</span>
+      </div>
+      <div class="mt-6" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s-2);">
+        <div class="latency-cell"><span class="lbl">ingest</span><span class="val">5ms</span><span class="bar" style="--w:20%"></span></div>
+        <div class="latency-cell"><span class="lbl">normalize</span><span class="val">2ms</span><span class="bar" style="--w:8%"></span></div>
+        <div class="latency-cell"><span class="lbl">BS</span><span class="val">105ns</span><span class="bar" style="--w:1%"></span></div>
+        <div class="latency-cell"><span class="lbl">IV solver</span><span class="val">1.03µs</span><span class="bar" style="--w:2%"></span></div>
+        <div class="latency-cell"><span class="lbl">Greeks</span><span class="val">259ns</span><span class="bar" style="--w:1%"></span></div>
+        <div class="latency-cell"><span class="lbl">GEX agg</span><span class="val">5.2µs</span><span class="bar" style="--w:2%"></span></div>
+        <div class="latency-cell"><span class="lbl">fanout</span><span class="val">10ms</span><span class="bar" style="--w:40%"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── DEALER STATE ─── -->
+<section id="dealer" style="padding: 140px 0;">
+  <div class="container">
+    <span class="t-tiny">03 · The dealer</span>
+    <h2 class="t-h1 mt-4 reveal-blur" style="max-width: 760px;">
+      Six measurements. One consistent answer:
+      <span style="color: var(--fg-3);">where is the next forced trade?</span>
+    </h2>
+
+    <div class="dealer-preview mt-16 reveal">
+      <!-- GEX dual panel preview -->
+      <div class="card spotlight">
+        <div class="card-hd">
+          <div class="row-tight">
+            <span class="t-tiny">GEX · vertical spine + horizontal ladder</span>
+            <span class="pill pill-mono" style="font-size: 10px;">SPX</span>
+          </div>
+          <span class="pill pill-short pill-mono">SHORT γ</span>
+        </div>
+        <div style="padding: var(--s-5); display: grid; grid-template-columns: 100px 1fr; gap: var(--s-4);">
+
+          <!-- vertical spine -->
+          <div style="display: flex; flex-direction: column; gap: 2px; height: 320px;">
+            <div class="spine-row"><span class="lbl">5860</span><span class="bar long" style="--w:14%"></span></div>
+            <div class="spine-row"><span class="lbl">5850</span><span class="bar long" style="--w:32%"></span></div>
+            <div class="spine-row"><span class="lbl">5840</span><span class="bar long" style="--w:48%"></span></div>
+            <div class="spine-row"><span class="lbl wall">5830</span><span class="bar long wall" style="--w:88%"></span></div>
+            <div class="spine-row"><span class="lbl">5820</span><span class="bar long" style="--w:54%"></span></div>
+            <div class="spine-row"><span class="lbl">5815</span><span class="bar long" style="--w:24%"></span></div>
+            <div class="spine-row spot"><span class="lbl">5810</span><span class="spot-mark"></span></div>
+            <div class="spine-row"><span class="lbl">5805</span><span class="bar short" style="--w:30%"></span></div>
+            <div class="spine-row"><span class="lbl">5800</span><span class="bar short" style="--w:58%"></span></div>
+            <div class="spine-row"><span class="lbl wall">5790</span><span class="bar short wall" style="--w:96%"></span></div>
+            <div class="spine-row"><span class="lbl">5780</span><span class="bar short" style="--w:62%"></span></div>
+            <div class="spine-row"><span class="lbl">5770</span><span class="bar short" style="--w:38%"></span></div>
+            <div class="spine-row"><span class="lbl">5760</span><span class="bar short" style="--w:18%"></span></div>
+          </div>
+
+          <!-- horizontal ladder -->
+          <div style="height: 320px; position: relative; border-left: 1px solid var(--line-faint);">
+            <div style="position: absolute; inset: 0; padding-left: 20px;">
+              <div class="t-tiny" style="color: var(--fg-3);">Cumulative dealer Δ as spot walks ±50pt</div>
+              <svg viewBox="0 0 600 240" preserveAspectRatio="none" style="width: 100%; height: 240px; margin-top: 12px;">
+                <defs>
+                  <linearGradient id="grad-d" x1="0" x2="1">
+                    <stop offset="0%" stop-color="#ef4444"/>
+                    <stop offset="50%" stop-color="#fafafa"/>
+                    <stop offset="100%" stop-color="#10b981"/>
+                  </linearGradient>
+                </defs>
+                <line x1="0" y1="120" x2="600" y2="120" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3,3"/>
+                <path d="M 0,120 L 60,116 L 120,108 L 180,86 L 240,40 L 300,32 L 360,76 L 420,140 L 480,178 L 540,210 L 600,222 L 600,120 Z"
+                      fill="rgba(239,68,68,0.08)"/>
+                <path d="M 0,120 L 60,116 L 120,108 L 180,86 L 240,40 L 300,32 L 360,76 L 420,140 L 480,178 L 540,210 L 600,222"
+                      fill="none" stroke="url(#grad-d)" stroke-width="2"/>
+                <line x1="300" y1="0" x2="300" y2="240" stroke="rgba(255,255,255,0.18)"/>
+                <circle cx="300" cy="32" r="3.5" fill="#fff"/>
+                <line x1="408" y1="0" x2="408" y2="240" stroke="rgba(245,158,11,0.4)" stroke-dasharray="2,4"/>
+              </svg>
+              <div class="spread mt-2 t-mono" style="font-size: 10.5px; color: var(--fg-3);">
+                <span>−50</span><span>−25</span><span style="color: var(--fg-1);">spot 5810</span><span class="fg-warn">zero γ → 5824</span><span>+50</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- right column -->
+      <div class="col gap-3">
+        <div class="card spotlight">
+          <div class="card-hd"><span class="t-tiny">DPI Composite</span><span class="t-mono fg-2" style="font-size: 11px;">EWMA α=0.30</span></div>
+          <div class="card-bd">
+            <div class="t-num" style="font-size: 38px; color: var(--fg-0); line-height: 1;">
+              <span data-ticker="82" data-decimals="0">82</span><span class="fg-3" style="font-size: 18px;"> / 100</span>
+            </div>
+            <div class="mt-4 col gap-2">
+              <div class="dpi-row"><span class="lbl">NetGEX pressure</span><span class="bar" style="--w:88%"></span><span class="val">88</span></div>
+              <div class="dpi-row"><span class="lbl">Charm velocity</span><span class="bar" style="--w:74%"></span><span class="val">74</span></div>
+              <div class="dpi-row"><span class="lbl">Vanna sensitivity</span><span class="bar" style="--w:62%"></span><span class="val">62</span></div>
+              <div class="dpi-row"><span class="lbl">Time-to-close</span><span class="bar" style="--w:91%"></span><span class="val">91</span></div>
+              <div class="dpi-row"><span class="lbl">Flow concentration</span><span class="bar" style="--w:48%"></span><span class="val">48</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card spotlight">
+          <div class="card-hd"><span class="t-tiny">Charm Clock</span><span class="pill pill-warn pill-mono" style="font-size: 10px;">PEAK</span></div>
+          <div class="card-bd">
+            <div class="zones">
+              <div class="zone past"><span>WEAK</span></div>
+              <div class="zone past"><span>RISING</span></div>
+              <div class="zone now"><span>PEAK</span></div>
+              <div class="zone"><span>FADING</span></div>
+              <div class="zone"><span>PIN</span></div>
+            </div>
+            <div class="t-mono mt-3 fg-2" style="font-size: 11px;">in zone 18m · ETA next: <span class="fg-1">~26m</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── INTEGRATE ─── -->
+<section id="integrate" style="padding: 100px 0; background: linear-gradient(180deg, transparent, rgba(255,255,255,0.02), transparent);">
+  <div class="container">
+    <span class="t-tiny">04 · Integrate</span>
+    <h2 class="t-h1 mt-4 reveal-blur" style="max-width: 760px;">
+      One header. <span style="color: var(--fg-3);">One endpoint.</span>
+    </h2>
+    <p class="t-lead mt-4 reveal" style="max-width: 600px;">
+      Activated as a flowjob.id add-on. The parent site mints your API key
+      once. Hit any endpoint with that bearer token from any client.
+    </p>
+
+    <div class="grid-2 mt-12 reveal">
+      <div class="card spotlight" style="background: var(--bg-0);">
+        <div class="card-hd">
+          <span class="t-tiny">REST · snapshot</span>
+          <span class="t-mono fg-3" style="font-size: 11px;">GET /api/snapshot/spx</span>
+        </div>
+        <pre class="code-block" style="margin: 0; border: none; border-radius: 0;"><span class="c-com"># latest dealer state for SPX 0DTE</span>
+curl https://api.flowgreeks.flowjob.id/api/snapshot/spx \
+  -H <span class="c-str">"Authorization: Bearer $FLOWGREEKS_KEY"</span>
+
+<span class="c-com"># response</span>
+{
+  <span class="c-key">"net_gex"</span>: -3840000000,
+  <span class="c-key">"regime"</span>: 2,
+  <span class="c-key">"dpi"</span>: { <span class="c-key">"composite"</span>: 82, <span class="c-key">"charm"</span>: 74 },
+  <span class="c-key">"pin"</span>: { <span class="c-key">"top_strike"</span>: 5810, <span class="c-key">"top_prob"</span>: 0.41 }
+}</pre>
+      </div>
+
+      <div class="card spotlight" style="background: var(--bg-0);">
+        <div class="card-hd">
+          <span class="t-tiny">WebSocket · live stream</span>
+          <span class="t-mono fg-3" style="font-size: 11px;">/ws/live</span>
+        </div>
+        <pre class="code-block" style="margin: 0; border: none; border-radius: 0;"><span class="c-com">// subscribe to live state + alerts</span>
+const ws = new WebSocket(<span class="c-str">"wss://api.flowgreeks.flowjob.id/ws/live"</span>);
+ws.onopen = () => ws.send(JSON.stringify({
+  action: <span class="c-str">"subscribe"</span>,
+  symbols: [<span class="c-str">"spx", "ndx"</span>],
+  kinds: [<span class="c-str">"gex", "narrative", "alert"</span>],
+}));
+ws.onmessage = (e) => {
+  const evt = JSON.parse(e.data);
+  if (evt.type === <span class="c-str">"snapshot"</span>) updateUI(evt);
+};</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CTA ─── -->
+<section style="padding: 140px 0;">
+  <div class="container">
+    <div class="card card-elev card-pad-lg spotlight beam beam-emerald" style="text-align: center; padding: var(--s-20) var(--s-8); position: relative; overflow: hidden;">
+      <div class="lamp"></div>
+      <div class="grid-bg" style="opacity: 0.5;"></div>
+      <div class="relative" style="z-index: 2; max-width: 680px; margin: 0 auto;">
+        <span class="t-tiny">Add-on for flowjob.id</span>
+        <h2 class="t-h1 mt-3" data-split>Stop watching the tape.</h2>
+        <h2 class="t-h1" style="color: var(--fg-3);" data-split>Front-run the dealer.</h2>
+        <p class="t-lead mt-6" style="color: var(--fg-2);">
+          Activate the FlowGreeks add-on inside flowjob.id. Receive an
+          API key. Open the terminal. Read the dealer.
+        </p>
+        <div class="row mt-10" style="justify-content: center; gap: 12px;">
+          <a href="dashboard.html" class="btn btn-primary btn-lg">
+            Open the terminal
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </a>
+          <a href="activate.html" class="btn btn-glow btn-lg"><span>Activate on flowjob.id</span></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FOOTER ─── -->
+<footer style="border-top: 1px solid var(--line-faint); padding: var(--s-12) 0;">
+  <div class="container spread">
+    <div class="row gap-3">
+      <span class="brand-mark"></span>
+      <span class="t-mono" style="font-size: 12px; color: var(--fg-3);">FlowGreeks v0.2 · part of flowjob.id</span>
+    </div>
+    <div class="row gap-6 t-mono" style="font-size: 12px; color: var(--fg-3);">
+      <a href="#thesis">Thesis</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#dealer">Dealer state</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="#">Documentation</a>
+      <a href="#">SECURITY.md</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ─── COMMAND PALETTE ─── -->
+<div id="palette" style="position: fixed; inset: 0; background: rgba(8,8,12,0.7); backdrop-filter: blur(8px); display: none; align-items: flex-start; justify-content: center; padding-top: 14vh; z-index: 100;">
+  <div style="width: 540px; max-width: 92vw; background: var(--bg-1); border: 1px solid var(--line-strong); border-radius: var(--r-5); box-shadow: var(--shadow-elev); overflow: hidden;">
+    <div style="padding: 14px 18px; border-bottom: 1px solid var(--line-faint); display: flex; align-items: center; gap: 10px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--fg-3);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" placeholder="Search the terminal — symbol, page, action…" style="flex: 1; background: none; border: none; outline: none; font: inherit; color: var(--fg-0); font-size: 14px;" autofocus>
+      <span class="kbd">esc</span>
+    </div>
+    <div style="padding: 8px;">
+      <div style="padding: 6px 12px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-3);">Pages</div>
+      <a href="dashboard.html" style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-2); color: var(--fg-1); font-size: 13px;" onmouseover="this.style.background='var(--bg-2)'" onmouseout="this.style.background=''">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        Open dashboard <span style="margin-left: auto; color: var(--fg-3);"><span class="kbd">↵</span></span>
+      </a>
+      <a href="simulator.html" style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-2); color: var(--fg-1); font-size: 13px;" onmouseover="this.style.background='var(--bg-2)'" onmouseout="this.style.background=''">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+        Simulator
+      </a>
+      <a href="activate.html" style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-2); color: var(--fg-1); font-size: 13px;" onmouseover="this.style.background='var(--bg-2)'" onmouseout="this.style.background=''">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14.7 6.3a4.5 4.5 0 1 1-2-2L4 12.9V19h6.1l8.6-8.6"/></svg>
+        Activate / API key
+      </a>
+      <div style="padding: 6px 12px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-3); margin-top: 8px;">Symbols</div>
+      <a href="dashboard.html#spx" style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-2); color: var(--fg-1); font-size: 13px;" onmouseover="this.style.background='var(--bg-2)'" onmouseout="this.style.background=''">
+        <span class="t-mono fg-3" style="font-size: 11px; min-width: 28px;">SPX</span>
+        S&amp;P 500 Index · 0DTE <span style="margin-left: auto;" class="t-mono fg-2">5810.42</span>
+      </a>
+      <a href="dashboard.html#ndx" style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-2); color: var(--fg-1); font-size: 13px;" onmouseover="this.style.background='var(--bg-2)'" onmouseout="this.style.background=''">
+        <span class="t-mono fg-3" style="font-size: 11px; min-width: 28px;">NDX</span>
+        Nasdaq 100 · 0DTE <span style="margin-left: auto;" class="t-mono fg-2">20184.6</span>
+      </a>
+    </div>
+    <div style="padding: 10px 18px; border-top: 1px solid var(--line-faint); display: flex; gap: var(--s-4); font-size: 11px; color: var(--fg-3);" class="t-mono">
+      <span><span class="kbd">↑</span> <span class="kbd">↓</span> navigate</span>
+      <span><span class="kbd">↵</span> select</span>
+      <span><span class="kbd">esc</span> close</span>
+    </div>
+  </div>
+</div>
+
+<style>
+  #palette.open { display: flex !important; animation: palette-fade 200ms var(--ease-out); }
+  @keyframes palette-fade { from { opacity: 0; } to { opacity: 1; } }
+</style>
+
+<script src="_v3.js" defer></script>
+</body>
+</html>

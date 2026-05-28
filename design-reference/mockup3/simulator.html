@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1440" />
+  <title>FlowGreeks · Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="_v3.css">
+  <style>
+    /* ─── shell ─────────────────────────────────────────────────── */
+    .shell-2col {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      min-height: calc(100vh - 56px);
+    }
+
+    .sim-side {
+      border-right: 1px solid var(--line-faint);
+      padding: var(--s-8) var(--s-6) var(--s-6);
+      display: flex; flex-direction: column;
+      gap: var(--s-6);
+      background: linear-gradient(180deg, var(--bg-1), var(--bg-0) 60%);
+      position: relative;
+      overflow: hidden;
+    }
+    .sim-side::before {
+      /* faint grid bg on side */
+      content: "";
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
+      pointer-events: none;
+    }
+    .sim-side > * { position: relative; z-index: 1; }
+
+    .sim-main {
+      padding: var(--s-8) var(--s-8) var(--s-10);
+      display: flex; flex-direction: column;
+      gap: var(--s-6);
+      min-width: 0;
+      position: relative;
+    }
+
+    /* ─── slider ────────────────────────────────────────────────── */
+    .slider {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: var(--s-4) var(--s-5);
+      border: 1px solid var(--line);
+      border-radius: var(--r-4);
+      background: var(--bg-1);
+      transition: border-color var(--dur-2);
+    }
+    .slider:focus-within { border-color: var(--line-strong); }
+    .slider-hd {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 8px;
+    }
+    .slider-hd .lbl {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--fg-3); font-weight: 600;
+    }
+    .slider-hd .val {
+      font-family: var(--font-mono); font-size: 22px; color: var(--fg-0);
+      font-weight: 500; font-feature-settings: "tnum","ss01","cv11";
+      letter-spacing: -0.01em;
+    }
+    .slider-hd .unit { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 4px;
+      background: linear-gradient(90deg, var(--bg-3), var(--bg-4));
+      border-radius: 2px; outline: none;
+      margin: 6px 0 4px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--fg-0);
+      cursor: ew-resize;
+      border: 2px solid var(--bg-0);
+      box-shadow: 0 0 0 1px var(--line-strong), 0 0 12px rgba(255,255,255,0.18);
+      transition: box-shadow var(--dur-2);
+    }
+    input[type=range]:hover::-webkit-slider-thumb {
+      box-shadow: 0 0 0 1px var(--line-bright), 0 0 16px rgba(255,255,255,0.28);
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--fg-0); cursor: ew-resize;
+      border: 2px solid var(--bg-0);
+      box-shadow: 0 0 0 1px var(--line-strong);
+    }
+    .slider-marks {
+      display: flex; justify-content: space-between;
+      font-family: var(--font-mono); font-size: 10px; color: var(--fg-4);
+      letter-spacing: 0.02em;
+    }
+
+    /* ─── presets ───────────────────────────────────────────────── */
+    .preset-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .preset {
+      padding: 10px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--r-3);
+      background: var(--bg-1);
+      color: var(--fg-2);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: background var(--dur-2), color var(--dur-2),
+                  border-color var(--dur-2), transform var(--dur-2);
+    }
+    .preset:hover {
+      background: var(--bg-2);
+      color: var(--fg-0);
+      border-color: var(--line-strong);
+      transform: translateY(-1px);
+    }
+    .preset.active {
+      background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+      border-color: var(--line-bright);
+      color: var(--fg-0);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04),
+                  0 0 0 1px rgba(255,255,255,0.06);
+    }
+    .preset .v {
+      font-family: var(--font-mono); font-size: 10px;
+      color: var(--fg-3); display: block; margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ─── result headline (the hero of this page) ───────────────── */
+    .result-headline {
+      padding: var(--s-8) var(--s-8) var(--s-6);
+      border: 1px solid var(--line);
+      border-radius: var(--r-5);
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(16,185,129,0.10), transparent 70%),
+        linear-gradient(180deg, var(--bg-1), var(--bg-0));
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+    .result-headline .arrow-art {
+      position: absolute; right: -36px; top: 50%; transform: translateY(-50%);
+      font-family: var(--font-mono); font-size: 280px; line-height: 1;
+      color: rgba(16,185,129,0.04); font-weight: 700; letter-spacing: -0.05em;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .result-headline > * { position: relative; z-index: 1; }
+
+    .result-headline .meta {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--fg-3); font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .result-headline .num {
+      font-family: var(--font-mono);
+      font-size: 80px; font-weight: 500; line-height: 1;
+      letter-spacing: -0.035em;
+      margin-top: 14px;
+      font-feature-settings: "tnum","ss01","cv11";
+    }
+    .result-headline .num.long  { color: var(--accent-long); text-shadow: 0 0 40px var(--accent-long-glow); }
+    .result-headline .num.short { color: var(--accent-short); text-shadow: 0 0 40px var(--accent-short-glow); }
+    .result-headline .desc {
+      font-size: 14.5px; color: var(--fg-2);
+      margin-top: 18px; line-height: 1.6;
+      max-width: 580px;
+    }
+    .result-headline .desc strong { color: var(--accent-long); font-weight: 600; }
+
+    .result-stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: var(--s-3);
+      margin-top: var(--s-8);
+      padding-top: var(--s-6);
+      border-top: 1px solid var(--line-faint);
+    }
+    .result-stats .stat .lbl {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--fg-4); font-weight: 600;
+    }
+    .result-stats .stat .v {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      color: var(--fg-0); font-weight: 500;
+      margin-top: 6px;
+      font-feature-settings: "tnum","ss01","cv11";
+      letter-spacing: -0.01em;
+    }
+    .result-stats .stat .v.long  { color: var(--accent-long); }
+    .result-stats .stat .v.short { color: var(--accent-short); }
+
+    /* ─── secondary tile row ────────────────────────────────────── */
+    .scenario-tape {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4);
+    }
+    .scenario-tile {
+      padding: var(--s-5);
+      border: 1px solid var(--line);
+      border-radius: var(--r-4);
+      background: var(--bg-1);
+      transition: border-color var(--dur-2), background var(--dur-2);
+    }
+    .scenario-tile:hover { border-color: var(--line-strong); background: var(--bg-2); }
+    .scenario-tile .lbl {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--fg-3); font-weight: 600;
+    }
+    .scenario-tile .v {
+      font-family: var(--font-mono);
+      font-size: 28px; font-weight: 500;
+      color: var(--fg-0);
+      margin-top: 10px;
+      letter-spacing: -0.02em;
+      font-feature-settings: "tnum","ss01","cv11";
+    }
+    .scenario-tile .delta {
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--fg-2); margin-top: 8px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .scenario-tile .delta.long  { color: var(--accent-long); }
+    .scenario-tile .delta.short { color: var(--accent-short); }
+
+    /* ─── contributors ──────────────────────────────────────────── */
+    .contrib-row {
+      display: grid;
+      grid-template-columns: 64px 56px 1fr 80px 92px;
+      gap: 14px; align-items: center;
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--line-faint);
+      font-family: var(--font-mono); font-size: 12.5px;
+      transition: background var(--dur-1);
+    }
+    .contrib-row:hover { background: var(--bg-2); }
+    .contrib-row:last-child { border-bottom: none; }
+    .contrib-row .strike { color: var(--fg-1); font-weight: 500; font-feature-settings: "tnum"; }
+    .contrib-row .side {
+      font-size: 9.5px;
+      padding: 3px 7px;
+      border-radius: 3px;
+      text-align: center;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      width: fit-content;
+    }
+    .contrib-row .side.C {
+      background: var(--accent-long-bg);
+      color: var(--accent-long);
+      border: 1px solid rgba(16,185,129,0.18);
+    }
+    .contrib-row .side.P {
+      background: var(--accent-short-bg);
+      color: var(--accent-short);
+      border: 1px solid rgba(239,68,68,0.18);
+    }
+    .contrib-row .bar-wrap {
+      height: 5px;
+      background: var(--bg-3);
+      border-radius: 2px;
+      position: relative; overflow: hidden;
+    }
+    .contrib-row .bar { height: 100%; border-radius: 2px; width: var(--w); }
+    .contrib-row.long .bar  { background: linear-gradient(90deg, transparent, var(--accent-long)); box-shadow: 0 0 8px var(--accent-long-glow); }
+    .contrib-row.short .bar { background: linear-gradient(90deg, transparent, var(--accent-short)); box-shadow: 0 0 8px var(--accent-short-glow); }
+    .contrib-row .pos {
+      color: var(--fg-2); text-align: right;
+      font-feature-settings: "tnum","ss01","cv11";
+    }
+    .contrib-row .notional {
+      color: var(--fg-1); text-align: right;
+      font-weight: 500;
+      font-feature-settings: "tnum","ss01","cv11";
+    }
+    .contrib-row.long  .notional { color: var(--accent-long); }
+    .contrib-row.short .notional { color: var(--accent-short); }
+
+    /* ─── echo strip ────────────────────────────────────────────── */
+    .echo-strip {
+      display: flex; gap: var(--s-2);
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* ─── code block ────────────────────────────────────────────── */
+    .code-card {
+      background: var(--bg-0);
+      border: 1px solid var(--line);
+      border-radius: var(--r-5);
+      overflow: hidden;
+    }
+    .code-card .code-hd {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line-faint);
+      background: linear-gradient(180deg, var(--bg-1), var(--bg-0));
+    }
+    .code-card pre {
+      padding: var(--s-5) var(--s-6);
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: var(--fg-1);
+      line-height: 1.7;
+      overflow-x: auto;
+    }
+    .code-card .tok-cmd  { color: var(--fg-3); }
+    .code-card .tok-str  { color: var(--accent-long); }
+    .code-card .tok-json { color: var(--accent-warn); }
+
+    /* ─── eyebrow / title ───────────────────────────────────────── */
+    .sim-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--bg-1);
+      font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--fg-2); font-weight: 600;
+    }
+    .sim-eyebrow .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--glow-indigo);
+      box-shadow: 0 0 8px var(--glow-indigo);
+    }
+    .sim-title {
+      font-family: var(--font-display);
+      font-size: 36px; font-weight: 600;
+      color: var(--fg-0);
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      margin-top: var(--s-4);
+    }
+    .sim-title .em { color: var(--accent-long); }
+  </style>
+</head>
+<body>
+
+<!-- ─── topbar ────────────────────────────────────────────────── -->
+<div class="topbar">
+  <div class="container topbar-inner" style="max-width: none;">
+    <div class="row gap-3">
+      <a href="index.html" class="brand"><span class="brand-mark"></span><span>FlowGreeks</span></a>
+      <span class="t-mono fg-3" style="font-size: 11px;">/ Simulator</span>
+    </div>
+    <nav class="nav">
+      <a href="landing.html">Landing</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="simulator.html" class="active">Simulator</a>
+      <a href="activate.html">Activate</a>
+    </nav>
+    <div class="row gap-2">
+      <span class="ws-status t-mono" style="font-size: 11px; color: var(--fg-3);">
+        <span class="dot dot-long dot-pulse"></span> WS · live
+      </span>
+      <button class="btn btn-sm" data-open-palette>
+        <span class="kbd">⌘</span><span class="kbd">K</span>
+      </button>
+      <a href="dashboard.html" class="btn btn-sm">Back to terminal</a>
+    </div>
+  </div>
+</div>
+
+<div class="shell-2col">
+
+  <!-- ─── LEFT: scenario controls ─────────────────────────────── -->
+  <aside class="sim-side">
+    <div>
+      <span class="sim-eyebrow"><span class="dot"></span>What-if scenario</span>
+      <h1 class="sim-title" data-split>Move <span class="em">the dealer</span>.</h1>
+      <p class="t-muted mt-4" style="font-size: 13.5px; max-width: 320px; line-height: 1.6;">
+        Change spot, time forward, or shock IV. We re-price every contract on
+        the dealer's book, sum the Δ-change, and report the forced hedge
+        in dollar notional.
+      </p>
+    </div>
+
+    <!-- Spot move -->
+    <div class="slider">
+      <div class="slider-hd">
+        <span class="lbl">Spot move</span>
+        <span><span class="val" id="spotVal">+0.50</span><span class="unit"> %</span></span>
+      </div>
+      <input type="range" id="spotRange" min="-200" max="200" value="50" step="5"/>
+      <div class="slider-marks"><span>−2.00%</span><span>−1.00%</span><span>0</span><span>+1.00%</span><span>+2.00%</span></div>
+    </div>
+
+    <!-- Duration -->
+    <div class="slider">
+      <div class="slider-hd">
+        <span class="lbl">Duration</span>
+        <span><span class="val" id="durVal">15</span><span class="unit"> min</span></span>
+      </div>
+      <input type="range" id="durRange" min="0" max="120" value="15" step="5"/>
+      <div class="slider-marks"><span>0</span><span>30m</span><span>60m</span><span>90m</span><span>120m</span></div>
+    </div>
+
+    <!-- IV shift -->
+    <div class="slider">
+      <div class="slider-hd">
+        <span class="lbl">IV shift</span>
+        <span><span class="val" id="ivVal">+0.0</span><span class="unit"> vol pt</span></span>
+      </div>
+      <input type="range" id="ivRange" min="-50" max="50" value="0" step="1"/>
+      <div class="slider-marks"><span>−5.0</span><span>−2.5</span><span>0</span><span>+2.5</span><span>+5.0</span></div>
+    </div>
+
+    <!-- Presets -->
+    <div>
+      <div class="t-tiny">Presets</div>
+      <div class="preset-row mt-3">
+        <button class="preset active">Drift up<span class="v">+0.5% · 15m</span></button>
+        <button class="preset">Vol pop<span class="v">flat · IV+2</span></button>
+        <button class="preset">Pin pull<span class="v">−0.2% · 30m</span></button>
+        <button class="preset">Crash<span class="v">−2% · IV+3</span></button>
+        <button class="preset">Squeeze<span class="v">+1% · IV−1</span></button>
+        <button class="preset">EOD pin<span class="v">flat · 60m</span></button>
+      </div>
+    </div>
+
+    <div style="margin-top: auto;">
+      <button class="btn btn-primary btn-lg" style="width: 100%;">
+        Run scenario
+        <span class="kbd" style="margin-left: 8px; opacity: 0.7;">↵</span>
+      </button>
+      <p class="t-mono fg-3 mt-3" style="font-size: 10.5px; line-height: 1.6;">
+        Pure function over the latest snapshot. No live order routing.
+        Backtest engine validates against historical state archive.
+      </p>
+    </div>
+  </aside>
+
+  <!-- ─── MAIN: result ────────────────────────────────────────── -->
+  <main class="sim-main">
+
+    <!-- Scenario echo strip -->
+    <div class="echo-strip">
+      <span class="pill pill-mono">SPX · 0DTE</span>
+      <span class="pill pill-mono">spot 5810.42 → <span class="fg-long">5839.47</span></span>
+      <span class="pill pill-mono">+15min</span>
+      <span class="pill pill-mono">IV +0.0pt</span>
+      <span class="pill pill-mono fg-3" style="margin-left: auto;">snapshot · <span data-live>14:32:07</span> ET</span>
+    </div>
+
+    <!-- Headline result with glare -->
+    <div class="result-headline glare spotlight">
+      <div class="arrow-art">↗</div>
+
+      <div class="meta">
+        <span class="dot dot-long dot-pulse"></span>
+        Forced dealer hedge · 15m
+      </div>
+
+      <div class="num long">
+        <span data-ticker="1.24" data-prefix="+$" data-suffix="B" data-decimals="2" data-dur="1100">+$1.24B</span>
+      </div>
+
+      <div class="desc">
+        Dealer must <strong>BUY</strong> ES futures notional equivalent
+        to <span class="t-mono fg-1" data-live>+$1.24B</span> in spot delta to stay neutral over the next 15 minutes.
+        Charm decay absorbs <span class="t-mono fg-1">$240M</span> on its own; net pressure is
+        <span class="t-mono fg-1">$1.00B</span>.
+      </div>
+
+      <div class="result-stats">
+        <div class="stat">
+          <div class="lbl">Forced Δ</div>
+          <div class="v"><span data-live>+1.42M</span></div>
+        </div>
+        <div class="stat">
+          <div class="lbl">Forced notional</div>
+          <div class="v long"><span data-live>+$1.24B</span></div>
+        </div>
+        <div class="stat">
+          <div class="lbl">Charm aid</div>
+          <div class="v">−$240M</div>
+        </div>
+        <div class="stat">
+          <div class="lbl">Net pressure</div>
+          <div class="v long"><span data-live>+$1.00B</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Three secondary tiles -->
+    <div class="scenario-tape">
+      <div class="scenario-tile">
+        <div class="lbl">DPI projection (post)</div>
+        <div class="v"><span data-ticker="68" data-decimals="0">68</span> <span class="fg-3" style="font-size: 14px; letter-spacing: 0;">/ 100</span></div>
+        <div class="delta short">↓ −14 from current 82</div>
+      </div>
+      <div class="scenario-tile">
+        <div class="lbl">Net GEX (post)</div>
+        <div class="v"><span data-ticker="-1.40" data-prefix="$" data-suffix="B" data-decimals="2">−$1.40B</span></div>
+        <div class="delta long">↑ +$2.44B from current −$3.84B</div>
+      </div>
+      <div class="scenario-tile">
+        <div class="lbl">Zero gamma (post)</div>
+        <div class="v"><span data-ticker="5818" data-decimals="0">5818</span></div>
+        <div class="delta short">−6 from current 5824</div>
+      </div>
+    </div>
+
+    <!-- Top contributors -->
+    <div class="card">
+      <div class="card-hd">
+        <span class="t-tiny">Top contributing strikes</span>
+        <span class="t-mono fg-3" style="font-size: 11px;">|Δ-change × position × $multiplier|</span>
+      </div>
+
+      <div>
+        <div class="contrib-row long">
+          <span class="strike">5810</span>
+          <span class="side C">CALL</span>
+          <span class="bar-wrap"><span class="bar" style="--w:100%"></span></span>
+          <span class="pos">+18.2k</span>
+          <span class="notional">+$284M</span>
+        </div>
+        <div class="contrib-row long">
+          <span class="strike">5815</span>
+          <span class="side C">CALL</span>
+          <span class="bar-wrap"><span class="bar" style="--w:84%"></span></span>
+          <span class="pos">+14.8k</span>
+          <span class="notional">+$232M</span>
+        </div>
+        <div class="contrib-row short">
+          <span class="strike">5800</span>
+          <span class="side P">PUT</span>
+          <span class="bar-wrap"><span class="bar" style="--w:72%"></span></span>
+          <span class="pos">+12.1k</span>
+          <span class="notional">+$198M</span>
+        </div>
+        <div class="contrib-row long">
+          <span class="strike">5820</span>
+          <span class="side C">CALL</span>
+          <span class="bar-wrap"><span class="bar" style="--w:62%"></span></span>
+          <span class="pos">+10.4k</span>
+          <span class="notional">+$172M</span>
+        </div>
+        <div class="contrib-row long">
+          <span class="strike">5805</span>
+          <span class="side C">CALL</span>
+          <span class="bar-wrap"><span class="bar" style="--w:48%"></span></span>
+          <span class="pos">+8.1k</span>
+          <span class="notional">+$132M</span>
+        </div>
+        <div class="contrib-row short">
+          <span class="strike">5795</span>
+          <span class="side P">PUT</span>
+          <span class="bar-wrap"><span class="bar" style="--w:34%"></span></span>
+          <span class="pos">+5.8k</span>
+          <span class="notional">+$94M</span>
+        </div>
+        <div class="contrib-row long">
+          <span class="strike">5825</span>
+          <span class="side C">CALL</span>
+          <span class="bar-wrap"><span class="bar" style="--w:24%"></span></span>
+          <span class="pos">+4.2k</span>
+          <span class="notional">+$66M</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Curl preview -->
+    <div class="code-card spotlight">
+      <div class="code-hd">
+        <span class="t-tiny">Reproduce via API</span>
+        <span class="t-mono fg-3" style="font-size: 11px;">POST /api/simulate/spx</span>
+      </div>
+      <pre><span class="tok-cmd">curl</span> -X POST https://api.flowgreeks.flowjob.id/api/simulate/spx \
+  -H <span class="tok-str">"Authorization: Bearer $FLOWGREEKS_KEY"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d '<span class="tok-json">{"spot_pct_change":0.005,"duration_minutes":15,"vol_pt_change":0}</span>'</pre>
+    </div>
+
+  </main>
+</div>
+
+<!-- ─── Cmd+K palette ─────────────────────────────────────────── -->
+<div id="palette">
+  <div class="palette-box">
+    <div class="palette-input">
+      <span class="t-mono fg-3" style="font-size: 12px;">⌘K</span>
+      <input type="text" placeholder="Run scenario, jump to dashboard, copy curl..."/>
+      <span class="t-mono fg-4" style="font-size: 10px;">esc</span>
+    </div>
+    <div class="palette-list">
+      <div class="palette-section">Scenarios</div>
+      <a class="palette-item">
+        <span>Drift up · +0.5% / 15min</span>
+        <span class="t-mono fg-4" style="font-size: 10px;">preset 1</span>
+      </a>
+      <a class="palette-item">
+        <span>Crash · −2% / IV+3</span>
+        <span class="t-mono fg-4" style="font-size: 10px;">preset 4</span>
+      </a>
+      <div class="palette-section">Navigate</div>
+      <a class="palette-item" href="dashboard.html">
+        <span>Open dashboard</span>
+        <span class="t-mono fg-4" style="font-size: 10px;">go</span>
+      </a>
+      <a class="palette-item" href="landing.html">
+        <span>Open landing</span>
+        <span class="t-mono fg-4" style="font-size: 10px;">go</span>
+      </a>
+      <div class="palette-section">Actions</div>
+      <a class="palette-item">
+        <span>Copy curl reproduction</span>
+        <span class="t-mono fg-4" style="font-size: 10px;">⌘ ⇧ C</span>
+      </a>
+      <a class="palette-item">
+        <span>Export contributors as CSV</span>
+        <span class="t-mono fg-4" style="font-size: 10px;">⌘ E</span>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script src="_v3.js" defer></script>
+<script>
+  // Live-update scenario sliders
+  const $ = (id) => document.getElementById(id);
+  const setText = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+
+  $('spotRange')?.addEventListener('input', (e) => {
+    const v = +e.target.value / 100;
+    setText('spotVal', (v >= 0 ? '+' : '') + v.toFixed(2));
+  });
+  $('durRange')?.addEventListener('input', (e) => setText('durVal', e.target.value));
+  $('ivRange')?.addEventListener('input', (e) => {
+    const v = +e.target.value / 10;
+    setText('ivVal', (v >= 0 ? '+' : '') + v.toFixed(1));
+  });
+
+  document.querySelectorAll('.preset').forEach((p) => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.preset').forEach((q) => q.classList.remove('active'));
+      p.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

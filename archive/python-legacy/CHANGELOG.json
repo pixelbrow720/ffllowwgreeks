@@ -1,0 +1,90 @@
+{
+  "$schema": "https://flowgreeks.dev/schemas/changelog/v1.json",
+  "current_version": "1.3",
+  "policy": "see API_POLICY.md for what counts as additive vs breaking",
+  "versions": [
+    {
+      "version": "1.3",
+      "date": "2026-05-25",
+      "rev": "Rev 13",
+      "breaking": [],
+      "added": [
+        "Snapshot WS frame now carries a per-symbol monotonic `seq` integer (FE-1). Both `WS /v1/{symbol}/stream` and `GET /v1/{symbol}/stream/sse` accept an optional `?since_seq=<int>` query param to replay buffered frames on reconnect from a per-symbol ring buffer (depth ~60 frames). Additive — pre-v1.3 servers ignore the parameter and the field; consumers should treat absence of `seq` as 'no resume point known'.",
+        "`GET /v1/{symbol}/history` — bucketed time-series over `computed_metrics` (FE-2). Required `X-API-Key`. Last-value-per-bucket aggregation. Validates `metric` against `EXPECTED_METRIC_TYPES` (HTTP 422 on unknown), `since < until <= now()` (HTTP 400), and a 10,000-point per-request cap (HTTP 400). Replaces the polling pattern of hitting `/snapshot` once per bucket.",
+        "`POST /admin/refresh-token` — rotate admin JWT before/after `exp` (FE-3). Accepts OLD bearer token; acceptance window is still-valid OR expired within the last `JWT_REFRESH_GRACE_SECONDS` (default 300s = 5min). Old jti is added to `jwt_revocations` so the rotated credential cannot be reused. Returns the same `{access_token, expires_in_seconds}` shape as `/admin/login`. Rate-limited 30/min/IP."
+      ],
+      "changed": [
+        "`Settings.jwt_refresh_grace_seconds` (env `JWT_REFRESH_GRACE_SECONDS`, default 300, range 0-3600) controls the post-expiry refresh window. 0 disables the grace path entirely."
+      ],
+      "documented": [
+        "`WsSnapshotFrame.seq` is OPTIONAL on the wire — consumers MUST treat absence as 'no resume point known yet, ask for everything' rather than as an error. The cache-prime-before-first-publish path also omits the field when latest_seq is 0."
+      ]
+    },
+    {
+      "version": "1.2",
+      "date": "2026-05-25",
+      "rev": "Rev 12",
+      "breaking": [],
+      "added": [
+        "WS snapshot frame now carries an explicit `type: \"snapshot\"` discriminator alongside the existing `data` field (BC-9). Additive — pre-Rev-12 clients that branched on presence of `data` continue to work; new clients can dispatch on `type` uniformly across snapshot / tick / heartbeat / error frames.",
+        "WS handlers now emit a `WsErrorFrame` ({type: \"error\", code, message}) on existing fatal-ish conditions: initial-snapshot prime failure (code 503) and unexpected handler exceptions (code 500). The TS contract has shipped this shape since v1.1; emitter wiring lands in v1.2 (BC-10).",
+        "`Accept-Version` request header captured for telemetry by an ASGI middleware (BC-13). No-op behaviourally; reserved for v1.2+ behavioural toggles per API_POLICY.md § 5.",
+        "`CHANGELOG.json` machine-readable companion to `CHANGELOG.md` (BC-14). Codegen consumers can read this without parsing markdown.",
+        "`GET /v1/symbols` anonymous endpoint returning the supported-symbols list (BC-17). Restores anonymous discovery without re-exposing the operational telemetry that motivated SEC-9 (DB connectivity, live feed booleans, last-compute timestamps).",
+        "Structlog `drop_sensitive_keys_processor` redacts well-known sensitive keys (`api_key`, `token`, `password`, `secret`, ...) from structured log records before render (SRE-23). Defence in depth on top of the existing query-string regex redactor in `main._redact()`."
+      ],
+      "changed": [
+        "`/v1/{symbol}/flow` and `/v1/{symbol}/hiro` now carry explicit OpenAPI descriptions documenting that `limit` outside `[1, 1000]` returns HTTP 422 (Pydantic validation, BC-18) and `since` older than 24 hours or in the future returns HTTP 400 (BC-19). Behaviour is unchanged; only documentation."
+      ],
+      "documented": [
+        "`/v1/{symbol}/flow` and `/v1/{symbol}/hiro` are NOT wrapped in the standard `{symbol, computed_at, next_update_in_seconds, data}` envelope (BC-15). This is a permanent v1 stability exemption per API_POLICY.md § 1; `/v2/` will unify all response envelopes. REV12-V2 markers in the source point future implementers at the wrap site.",
+        "NaN, +Infinity, -Infinity are serialised as JSON `null` in BOTH REST and WebSocket transports (BC-16). Consumers should treat `null` numeric values as 'not computable' rather than as zero."
+      ]
+    },
+    {
+      "version": "1.1",
+      "date": "2026-04-XX",
+      "rev": "Rev 8 + Rev 9 (retroactive)",
+      "breaking": [
+        "`GET /health` response thinned to `{status, ts}`. Previous fields (`db_connected`, `live_opra_connected`, `live_globex_connected`, `supported_symbols`, `pipeline_running`, `now`, `last_compute_per_symbol`, `compute_interval_seconds`) moved to `GET /health/detail` (X-API-Key required).",
+        "Auth failure responses unified to `401`. Previous split of 401 (invalid credential) vs 403 (revoked / expired / ACL-deny) is gone.",
+        "Admin JWT lifetime shortened from 480 minutes to 60 minutes. `JWT_EXPIRE_MINUTES` default is now `60`.",
+        "WebSocket snapshot frame shape re-aligned to emitter. Wire frame has no `type` discriminator and no `envelope` wrapper — distinguish snapshot from heartbeat/error/tick by presence of `data`. (Note: v1.2 BC-9 ADDS `type: \"snapshot\"` additively; this v1.1 entry documents the original alignment.)",
+        "Pin probability field renamed from `probability` to `prob` in the `/v1/{symbol}/snapshot` payload (`pin_probability[].prob`).",
+        "Migration 0012 deactivates legacy API keys with `key_lookup IS NULL`. Operators must regenerate any pre-migration-0010 keys post-deploy."
+      ],
+      "added": [
+        "`GET /health/detail` — full operational telemetry, requires X-API-Key.",
+        "`POST /admin/logout` — server-side admin JWT denylist.",
+        "`GET /admin/metrics` — Prometheus exposition of pipeline counters.",
+        "`WS /v1/{symbol}/stream/ticks` — raw spot/futures tick fan-out.",
+        "Snapshot envelope fields propagated into TS: `health`, `walls_oi`, `walls_volume`, `weight_source_oi`, `weight_source_volume`, `vanna_total`, `charm_total`, `vanna_level`, `charm_level`, `risk_reversal_25d`, `iv_term_structure`, `hiro_cumulative`, `flow_events_last_hour`, `session_state.session_open_price_set`."
+      ],
+      "changed": [
+        "WebSocket revocation watcher poll interval shortened from 30s to 5s; revoked key closes mid-stream with WS code 4401 within ~5s.",
+        "Body size cap of 64 KiB on JSON request bodies; oversize returns 413.",
+        "HIRO bucket vocabulary on `/v1/{symbol}/hiro` accepts both `1m`/`5m`/`15m` (legacy) and `1min`/`5min`/`15min` (canonical); response always returns canonical.",
+        "`IvResponse.skew` deprecated in favour of `skew_per_expiry`; both populated for v1; `skew` will be removed in /v2/. Endpoint emits `Deprecation:` and `Sunset:` headers when `skew` is populated."
+      ]
+    },
+    {
+      "version": "1.0",
+      "date": "initial",
+      "rev": "v1.0 tag",
+      "breaking": [],
+      "added": [
+        "Initial public surface: `/health`, `/v1/{symbol}/{gex,max-pain,walls,iv,snapshot,0dte,spot,futures-levels,flow,hiro}`, `/v1/{symbol}/stream` (WS), `/v1/{symbol}/stream/sse` (SSE), full `/admin/*` surface (JWT auth)."
+      ],
+      "changed": []
+    }
+  ],
+  "active_deprecations": [
+    {
+      "surface": "/v1/{symbol}/iv",
+      "field": "IvResponse.skew",
+      "deprecated_on": "2027-01-01",
+      "sunset_on": "2027-07-01",
+      "replacement": "IvResponse.skew_per_expiry"
+    }
+  ]
+}
