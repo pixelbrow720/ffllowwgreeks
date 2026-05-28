@@ -126,6 +126,31 @@ func (rl *RateLimiter) Middleware(audit AuditSink) func(http.Handler) http.Handl
 	}
 }
 
+// IPMiddleware throttles every request by client IP, regardless of
+// auth state. Sits at the root router BEFORE the apikey Middleware so
+// bad-key floods (which fail auth before the per-key Middleware ever
+// runs) are bounded. Conservative defaults appropriate for a public
+// REST surface — authenticated callers get a fresh per-key budget on
+// top of this.
+//
+// Returns 429 + Retry-After when the bucket is empty. No audit emission
+// here (anonymous, pre-auth) — Prometheus counter only.
+func (rl *RateLimiter) IPMiddleware(rate, burst float64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := "ip:" + clientIP(r)
+			ok, retry := rl.Allow(key, rate, burst)
+			if !ok {
+				w.Header().Set("Retry-After", retrySeconds(retry))
+				recordRateLimited()
+				writeErr(w, http.StatusTooManyRequests, ErrTooMany.Error())
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // bucketParams returns (key, rate, burst) for the request. Authenticated
 // requests use APIKey.ID + APIKey.RateLimitRPS / RateBurst; anonymous
 // fall through to per-IP at a conservative 1 rps / 30 burst.

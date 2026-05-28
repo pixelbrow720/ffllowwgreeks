@@ -21,7 +21,7 @@ FlowGreeks is one of three products that merge into [**flowjob.id**](https://flo
 
 ## Project status
 
-Backend complete (M0–M9 + post-M9 hardening + observability + production-readiness + deep review + auth pivot to API keys). Production frontend lives at [../web/](../web/) (Next.js 14, ~35% complete — landing + dashboard skeleton on mock data). Static visual references in [../design-reference/mockup3/](../design-reference/mockup3/).
+Backend complete (M0–M9 + post-M9 hardening + observability + production-readiness + deep review + auth pivot to API keys). Production frontend lives at [../web/](../web/) (Next.js 14, ~35% complete — landing + dashboard skeleton on mock data). Design tokens + components live there directly; HTML mockup references have been retired.
 
 Hard-blocked on Databento OPRA unlock for live verification + DPI/Charm/Pin calibration.
 

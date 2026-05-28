@@ -1,7 +1,7 @@
 # Dashboard redesign proposal
 
 Source: `web/src/components/dashboard/`, `web/src/app/dashboard/page.tsx`
-Reference: `design-reference/mockup3/`, `CLAUDE.md` cross-cutting rules
+Reference: `web/` (design tokens in `tailwind.config.ts`), `CLAUDE.md` cross-cutting rules
 Inspected: 2026-05-28
 
 ## Current state inventory
@@ -171,9 +171,9 @@ TAPE scene:
 - Pro: Tape gets its own scene (it's a stream — can take the full canvas).
 - Con: Still some mode switching. Doesn't fully match mockup3 single-page intent.
 
-### Proposal C: Strict mockup3 port — copy `dashboard.html` 1:1
+### Proposal C: Strict mockup port — DEPRECATED
 
-Drop the scene model entirely. Port `design-reference/mockup3/dashboard.html` structure: top topbar (fixed, not hover-hide), 6-tile KPI rail with `beam-red` on Net GEX, 3-col body (280 / 1fr / 320), bottom statusbar. Replace recharts with hand-rolled SVG (mockup3 uses bespoke `.spine-r`, `.dpi-row`, `.zone`). Cmd+K palette via `cmdk` library.
+Originally proposed a 1:1 port of `design-reference/mockup3/dashboard.html`. That HTML reference no longer exists; design now lives in `web/` directly. Proposal C is retired in favor of A and B.
 
 **Trade-offs:**
 - Pro: Maximum design fidelity. Every token, every component already specified.

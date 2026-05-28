@@ -67,7 +67,7 @@ f559570 feat(trace): distributed trace id across HTTP + NATS
 - ✅ **B** — Backtest engine core: predicate-driven strategy validation, Sharpe/Sortino/maxDD (`internal/backtest/`)
 - ✅ **C** — Alerts engine: rule evaluator + delivery sinks + REST CRUD + WS bridge (`internal/alerts/`, `internal/api/alerts.go`)
 - ✅ **D** — End-to-end pipeline integration test (`internal/dealer/integration_test.go`, `internal/e2e/pipeline_test.go`)
-- ✅ **E** — Auth scaffolding: JWT issuer (HS256) + bcrypt store + middleware + `/auth/{signup,login,me}` (`internal/auth/`); gated by `JWT_SECRET` env
+- ✅ **E** — Auth scaffolding: JWT issuer (HS256) + bcrypt store + middleware + `/auth/{signup,login,me}` (`internal/auth/`); gated by `JWT_SECRET` env *[superseded by auth pivot 2026-05-27 — `internal/auth/` deleted, replaced by `internal/apikey/`. See [CHANGELOG.md "Auth pivot to API keys"](../CHANGELOG.md) and [docs/reference/02-auth.md](reference/02-auth.md).]*
 - ✅ **F** — Persist `dealer_state_1s` to TimescaleDB: migration 0004 hypertable + `store.StateWriter` (batched COPY FROM) + compute wiring; 7d compression + 14mo retention
 - ✅ **G** — REST `POST /api/backtest/run`: reads `dealer_state_1s` archive, replays through backtest engine using `alerts.Rule` predicate triple (Kind+Threshold+StringArg), 30s deadline, returns Sharpe/maxDD/trades
 - ✅ **H** — GitHub Actions CI: `.github/workflows/test.yml` runs build+vet+test (with race + tidy-drift guard) + golangci-lint on push and PR

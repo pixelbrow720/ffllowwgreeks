@@ -20,14 +20,13 @@ Now consolidated at `C:\FLOWGREEKS\`:
 ```
 C:\FLOWGREEKS\
 ├── backend/             ← Go (was Documents\!!!!!\flowgreeks)
-├── web/                 ← Next.js (was C:\dev\flowgreeks-web)
+├── web/                 ← Next.js (was C:\dev\flowgreeks-web). Design implementation lives here.
 ├── docs/                ← workspace-level cross-cutting docs
-├── design-reference/
-│   ├── mockup3/         ← HTML reference (was Documents\!!!!!\flowgreeks-mockup3)
-│   └── academy/         ← HTML curriculum (was Documents\!!!!!\flowgreeks-academy)
 └── archive/
     └── python-legacy/   ← deprecated Python backend (was Documents\FLOWGREEKS)
 ```
+
+(The original `flowgreeks-mockup3` and `flowgreeks-academy` HTML references were not consolidated into this workspace; those folders are no longer needed since the production frontend in `web/` owns its own design tokens.)
 
 The original folders are **still on disk** at their old locations as a safety net. Once the user has verified the consolidation works end-to-end (backend builds + frontend runs), they should manually delete the originals.
 

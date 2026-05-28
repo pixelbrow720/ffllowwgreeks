@@ -463,7 +463,8 @@ export interface components {
             vol_pt_change?: number;
         };
         SimulateResponse: {
-            symbol?: string;
+            /** @enum {string} */
+            symbol?: "spx" | "ndx";
             /** Format: double */
             spot?: number;
             /** Format: double */
@@ -512,7 +513,7 @@ export interface components {
             max_hold_min?: number;
             /**
              * Format: double
-             * @default 5
+             * @default 0
              */
             cooldown_min: number;
             name?: string;
@@ -955,8 +956,26 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Rule not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limit exceeded for this key */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

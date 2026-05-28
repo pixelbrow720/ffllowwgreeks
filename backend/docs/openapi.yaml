@@ -301,6 +301,9 @@ paths:
       tags: [Alerts]
       summary: Delete an alert rule
       operationId: deleteAlertRule
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
       parameters:
         - in: path
           name: id
@@ -308,8 +311,18 @@ paths:
           schema: { type: string }
       responses:
         "204": { description: Removed }
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404":
           description: Rule not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Rate limit exceeded for this key
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -518,7 +531,7 @@ components:
     SimulateResponse:
       type: object
       properties:
-        symbol: { type: string }
+        symbol: { type: string, enum: [spx, ndx] }
         spot: { type: number, format: double }
         new_spot: { type: number, format: double }
         duration_years: { type: number, format: double }
@@ -550,7 +563,7 @@ components:
         to: { type: string, format: date-time }
         direction: { type: string, enum: [long, short], default: long }
         max_hold_min: { type: number, format: double }
-        cooldown_min: { type: number, format: double, default: 5 }
+        cooldown_min: { type: number, format: double, default: 0 }
         name: { type: string }
         entry: { $ref: "#/components/schemas/RuleSpec" }
         exit:

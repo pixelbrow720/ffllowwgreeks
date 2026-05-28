@@ -17,3 +17,9 @@ scipy>=1.11
 # (see property_tests/ — Hull §13/§15 Black-Scholes invariants)
 hypothesis>=6.100
 pytest>=8.0
+
+# DBN → Postgres bridge (scripts/dbn_to_postgres.py).
+# Loads historical DBN files into the ticks hypertable so cmd/replay can
+# pace history through the compute pipeline (parallel path while DBN v1
+# definition records are unsupported in the Go ingest).
+psycopg[binary]>=3.2

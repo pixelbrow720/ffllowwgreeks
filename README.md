@@ -9,9 +9,8 @@ Distributed as an **add-on inside flowjob.id** — parent product owns user acco
 | Path | Role |
 |---|---|
 | [backend/](backend/) | Go service: OPRA + GLBX ingest, Greeks/dealer compute, REST + WebSocket API. Source of truth for product behavior. |
-| [web/](web/) | Next.js 14 dashboard + landing. Consumes backend over REST + WS. |
+| [web/](web/) | Next.js 14 dashboard + landing. Consumes backend over REST + WS. Design implementation lives here. |
 | [docs/](docs/) | Workspace-level cross-cutting docs (methodology, integration guides, redesigns). Backend's own deep docs live in [backend/docs/](backend/docs/). |
-| [design-reference/](design-reference/) | Read-only HTML mockups (`mockup3`, `academy`) — visual reference for redesign work. |
 | [archive/](archive/) | Deprecated Python backend (predecessor of `backend/`). Not in active use. |
 
 ## Quickstart

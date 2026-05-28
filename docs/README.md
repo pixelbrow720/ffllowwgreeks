@@ -1,21 +1,14 @@
 # Workspace docs
 
-Cross-cutting documentation that doesn't belong inside `backend/` or `web/`.
+Cross-cutting documentation. Backend's own deep subsystem docs live in [../backend/docs/](../backend/docs/) — don't duplicate them here.
 
-Backend's own deep subsystem docs live in [../backend/docs/](../backend/docs/) — don't duplicate them here.
+## What's here
 
-## Planned structure
+- [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md) — actionable roadmap (15 items) consolidating the audits below.
+- [integration/](integration/) — contract drift, WebSocket reference, type mapping. Source of truth for frontend ↔ backend wiring.
+- [methodology/](methodology/) — math validation evidence (research paper + parity / property / smile companions).
+- [design/](design/) — UX critique + dashboard redesign proposals.
+- [security/](security/) — security audits beyond [../backend/SECURITY.md](../backend/SECURITY.md).
+- [_cleanup-audit.md](_cleanup-audit.md) — recommendations for trimming stale docs.
 
-```
-docs/
-├── README.md                       this file
-├── architecture/                   workspace-level architecture (backend ↔ web ↔ flowjob.id)
-├── methodology/                    math validation, competitor crosscheck, research notes
-│   └── (planned: competitor-crosscheck.md, math-validation.md)
-├── integration/                    flowjob.id ↔ FlowGreeks integration specs
-│   └── (planned: flowjob-api-keys.md)
-└── design/                         UX research, redesign proposals, screenshots
-    └── (planned: dashboard-redesign.md)
-```
-
-Folders will be created on demand when their first document lands. Empty folders left out to keep `git status` clean.
+Empty subdirectories aren't precommitted; they appear when their first document lands.

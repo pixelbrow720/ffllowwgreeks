@@ -72,7 +72,7 @@ Total to full V1:      ~22-28 weeks
 **Goal:** Per-tick IV solve, analytical Greeks, per-strike dealer position estimate, net GEX.
 
 - [ ] BS pricing function + Brent IV solver in `internal/greeks/`
-- [ ] Unit tests vs `py_vollib` parity for known inputs
+- [ ] Unit tests vs `scipy.optimize.brentq` reference for known inputs (validation harness lives in `backend/scripts/validation/`)
 - [ ] Analytical Greeks: delta, gamma, theta, vega, charm, vanna
 - [ ] Lee-Ready aggressor classifier
 - [ ] Dealer position estimator with prior-day OI seeding
@@ -127,10 +127,10 @@ Total to full V1:      ~22-28 weeks
 
 ## M5 — Frontend integration (3-4 weeks)
 
-**Goal:** Convert HTML mockups to live React/Svelte app consuming WS.
+**Goal:** Convert HTML mockups to live Next.js app consuming WS.
 
-- [ ] Decide framework (SvelteKit recommended — see STACK.md)
-- [ ] Project setup with TypeScript + Vite
+- [ ] Decide framework — **Next.js 14 (App Router)** chosen, lives in `../web/`
+- [ ] Project setup with TypeScript + Tailwind
 - [ ] Convert dashboard mockup → component tree
 - [ ] WS client + reconnect/backoff + state store
 - [ ] Charm Clock page live data
@@ -155,9 +155,8 @@ Total to full V1:      ~22-28 weeks
 - [ ] Landing page from mockup → live deployment (handled by flowjob.id main-site track)
 - [ ] Add-on activation flow on flowjob.id surfaces secret to user once (one-shot reveal)
 - [ ] Marketing copy + screenshots
-- [ ] Discord server for community
 - [ ] First 10 friendly beta users
-- [ ] Stripe webhook handler for subscription events
+- [ ] Stripe + subscription state owned by flowjob.id (parent product) — FlowGreeks gets activation signal as `api_keys.rate_limit_rps` writes; no Stripe code in this repo
 
 **DoD:** Stranger can sign up, pay, log in, see dashboard. First $1 of revenue earned.
 

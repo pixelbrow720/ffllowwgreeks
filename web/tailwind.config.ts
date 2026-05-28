@@ -34,6 +34,14 @@ const config: Config = {
           info: "#3b82f6",
           pin: "#a855f7",
         },
+        // Earned data accents per CLAUDE.md. Use these for any color that
+        // carries semantic meaning (long/short positions, warning state).
+        // signal.* tokens above are deprecated; migrate components.
+        accent: {
+          short: "#ef4444",
+          long: "#10b981",
+          warn: "#f59e0b",
+        },
         brand: {
           DEFAULT: "#ff2a5b",
           hi: "#ff6f8d",

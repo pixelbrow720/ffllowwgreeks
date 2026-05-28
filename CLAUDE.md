@@ -10,8 +10,7 @@ This is a **single consolidated repository** holding three layers:
 | Folder | Role | Source of truth |
 |---|---|---|
 | [backend/](backend/) | Go service — OPRA + GLBX ingest, Greeks/dealer compute, REST + WS API | [backend/CLAUDE.md](backend/CLAUDE.md), [backend/docs/PROGRESS.md](backend/docs/PROGRESS.md) |
-| [web/](web/) | Next.js 14 frontend (landing + dashboard) | [web/README.md](web/README.md) |
-| [design-reference/](design-reference/) | Static HTML mockups, read-only visual reference | n/a — do not modify |
+| [web/](web/) | Next.js 14 frontend (landing + dashboard) — design implementation lives here | [web/README.md](web/README.md) |
 
 Predecessor Python backend is archived at [archive/python-legacy/](archive/python-legacy/) — **not in active use**, kept for reference only.
 
@@ -85,9 +84,8 @@ npm run build
 ```
 
 Frontend reference for design decisions:
-- `design-reference/mockup3/_v3.css` + `_v3.js` — tokens + 9 progressive enhancements
-- `design-reference/mockup3/DESIGN_SYSTEM.md` — design system spec
-- `backend/docs/openapi.yaml` — REST + WS contract (source of truth for types)
+- [web/](web/) — design implementation (Tailwind tokens in `tailwind.config.ts`, components in `src/`)
+- [backend/docs/openapi.yaml](backend/docs/openapi.yaml) — REST + WS contract (source of truth for types)
 
 ## Cross-cutting user rules (durable — do not re-ask)
 

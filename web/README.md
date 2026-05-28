@@ -26,8 +26,7 @@ To exercise against a live backend, run `make demo-up` from [../backend/](../bac
 ## Source-of-truth references
 
 - [../backend/docs/openapi.yaml](../backend/docs/openapi.yaml) — REST + WS contract; types should be derived from this, not hand-written
-- [../design-reference/mockup3/_v3.css](../design-reference/mockup3/_v3.css) + [_v3.js](../design-reference/mockup3/_v3.js) — design tokens + 9 progressive enhancements
-- [../design-reference/mockup3/DESIGN_SYSTEM.md](../design-reference/mockup3/DESIGN_SYSTEM.md) — design system spec
+- Design tokens live in [tailwind.config.ts](tailwind.config.ts); component primitives in [src/components/](src/components/)
 
 ## Cross-cutting rules (durable — restated for convenience)
 

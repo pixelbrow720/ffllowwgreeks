@@ -124,6 +124,15 @@ func main() {
 	// to "open" in that case so dev still works without a database).
 	apiKeyMW, apiKeyLimiter, apiKeyAudit := setupAPIKey(rootCtx, cfg, log, sharedPool)
 
+	// Per-IP throttle at root scope, BEFORE auth. Caps bad-key floods
+	// and unrate-limited public endpoint hammering (snapshot, levels)
+	// so a single attacker can't saturate the pgxpool with failing
+	// LookupByHash calls or DoS the public REST surface. Per-key tier
+	// limits still apply on top inside the protected router.
+	if apiKeyLimiter != nil {
+		r.Use(apiKeyLimiter.IPMiddleware(30, 60))
+	}
+
 	handlers := &api.Handlers{Cache: cache, Broker: broker}
 	handlers.MountPublic(r)
 
@@ -143,7 +152,7 @@ func main() {
 	protected := chi.NewRouter()
 	if cfg.APIKey.Enabled && apiKeyMW != nil {
 		protected.Use(apiKeyMW.Handler)
-		log.Info("api-key gate ON — /api/simulate, /api/alerts, /api/backtest require valid key")
+		log.Info("api-key gate ON — /api/simulate, /api/alerts, /api/backtest, /ws/live, /ws/replay require valid key")
 	} else {
 		log.Info("api-key gate OFF — protected routes are open")
 	}
@@ -159,20 +168,27 @@ func main() {
 	(&api.AlertHandlers{Engine: alertEng, Audit: apiKeyAudit}).Mount(protected)
 	r.Mount("/", protected)
 
+	// /ws/live and /ws/replay/* mount on `protected` so APIKEY_ENABLED=true
+	// gates them the same way it gates the REST surface. The api-key
+	// middleware is a normal http.Handler middleware that runs before
+	// the websocket Accept upgrade, so the upgrade still completes
+	// cleanly once auth passes. When APIKEY_ENABLED=false the protected
+	// router has no auth middleware and the WS endpoints stay open for
+	// local dev — same behaviour as the REST routes.
 	live := &api.LiveHandler{
 		Broker:  broker,
 		Cache:   cache,
 		Log:     log,
 		Origins: cfg.API.CORSOrigins,
 	}
-	r.Method(http.MethodGet, "/ws/live", live)
+	protected.Method(http.MethodGet, "/ws/live", live)
 
 	// Replay WS handler — best-effort. If the shared pool is missing
 	// or the publisher fails to construct, the rest of the api stays
 	// up; only /ws/replay returns 503.
 	if mgr := setupReplayManager(rootCtx, cfg, log, sharedPool); mgr != nil {
 		rh := &replay.WSHandler{Manager: mgr, Log: log, Origins: cfg.API.CORSOrigins}
-		r.Method(http.MethodGet, "/ws/replay/*", rh)
+		protected.Method(http.MethodGet, "/ws/replay/*", rh)
 		log.Info("replay manager ready")
 	} else {
 		log.Warn("replay manager unavailable; /ws/replay disabled")
