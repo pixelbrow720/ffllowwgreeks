@@ -3,8 +3,8 @@
 > Validated against commit `3e5b0ec`.
 > Source:
 > - [`internal/trace/`](../../internal/trace/) — request-scoped trace ids
-> - `internal/{api,auth,alerts,replay,store}/metrics.go` + `cmd/{api,ingest,compute}/metrics.go` — Prometheus counters/gauges/histograms
-> - `internal/auth/audit.go` — structured audit events
+> - `internal/{api,alerts,replay,store}/metrics.go` + `internal/apikey/metrics.go` + `cmd/{api,ingest,compute}/metrics.go` — Prometheus counters/gauges/histograms
+> - `internal/apikey/audit.go` — structured audit events
 > - [`deploy/prometheus/flowgreeks.rules.yml`](../../deploy/prometheus/flowgreeks.rules.yml) — alert rules
 > - [`deploy/grafana/flowgreeks-pipeline.json`](../../deploy/grafana/flowgreeks-pipeline.json) — starter dashboard
 
@@ -67,17 +67,15 @@ flowgreeks_ws_drops_total{symbol,kind}                               counter
 
 `symbol ∈ {spx, ndx, unknown}`, `kind ∈ {gex, alert, ...}`. The drops counter is the slow-client signal.
 
-### Auth (added in `8d36519`)
+### API-key auth
 
 ```
-flowgreeks_auth_login_attempts_total{result=ok|fail|locked}          counter
-flowgreeks_auth_signup_attempts_total{result=ok|fail}                counter
-flowgreeks_auth_refresh_attempts_total{result=ok|fail|reuse_detected} counter
-flowgreeks_auth_logouts_total                                        counter
-flowgreeks_auth_account_lockouts_total                               counter
+flowgreeks_apikey_auth_attempts_total{result=ok|missing|unknown|revoked|expired|lookup_error}  counter
+flowgreeks_apikey_rate_limited_total                                                            counter
+flowgreeks_apikey_keys_revoked_total                                                            counter
 ```
 
-Bounded cardinality: `result` is a small enum, no per-user labels. Pairs with the audit log — you alert on counters, you investigate via slog records.
+Bounded cardinality: `result` is a small enum, no per-key labels. Pairs with the audit log — you alert on counters, you investigate via slog records.
 
 ### Alerts engine
 
@@ -137,15 +135,15 @@ flowgreeks_ingest_feed_errors_total                                  counter
 
 ## Audit log
 
-[`internal/auth/audit.go`](../../internal/auth/audit.go) — `SlogAuditSink` writes to the same slog logger as every other line, but with a fixed structured shape:
+[`internal/apikey/audit.go`](../../internal/apikey/audit.go) — `SlogAuditSink` writes to the same slog logger as every other line, but with a fixed structured shape:
 
 ```json
 {
   "level": "INFO",
   "msg": "audit",
-  "kind": "auth.login.ok",
-  "user_id": 42,
-  "email": "alice@example.com",
+  "kind": "apikey.auth.ok",
+  "key_id": 42,
+  "parent_user_id": "flowjob_user_abc",
   "ip": "203.0.113.4",
   "user_agent": "Mozilla/5.0...",
   "detail": "",
@@ -156,29 +154,26 @@ flowgreeks_ingest_feed_errors_total                                  counter
 ```
 
 Field rules:
-- `email` lowercased + trimmed
+- `parent_user_id` is the opaque flowjob.id user id copied off the row (never an email or PII)
 - `user_agent` truncated to 256 chars by the sink
-- `detail` is free-form human-readable; **never includes secrets / tokens**
-- INFO level for all kinds **except** `refresh.reuse_detected`, `login.locked_trip`, `login.locked_out` — those are WARN
+- `detail` is free-form human-readable; **never includes secret material**
+- INFO level for `apikey.auth.ok`; **WARN** for every anomaly kind so SIEM rules can grep on level
 
-Audit kinds (full list — [`audit.go:34-44`](../../internal/auth/audit.go#L34)):
+Audit kinds (full list — [`audit.go`](../../internal/apikey/audit.go)):
 
 ```
-auth.login.ok                      INFO
-auth.login.fail                    INFO
-auth.login.locked_trip             WARN  (account just got locked)
-auth.login.locked_out              WARN  (already-locked attempt)
-auth.signup.ok                     INFO
-auth.signup.fail                   INFO
-auth.refresh.ok                    INFO
-auth.refresh.fail                  INFO
-auth.refresh.reuse_detected        WARN  (token leak)
-auth.logout                        INFO
+apikey.auth.ok                     INFO
+apikey.auth.missing                WARN  (no Bearer / X-API-Key on protected route)
+apikey.auth.unknown                WARN  (hash didn't resolve to a row)
+apikey.auth.revoked                WARN  (row exists but revoked_at is set)
+apikey.auth.expired                WARN  (row exists but expires_at has passed)
+apikey.auth.lookup_failed          WARN  (Postgres degraded)
+apikey.auth.rate_limited           WARN  (per-key bucket empty)
 alert.rule.upsert                  INFO  (emitted from api.AlertHandlers)
 alert.rule.delete                  INFO
 ```
 
-Same `AuditSink` is wired into `api.AlertHandlers` so rule mutation events live on the same log stream as auth events ([`internal/api/alerts.go`](../../internal/api/alerts.go) — see `audit()` helper).
+Same `AuditSink` interface is wired into `api.AlertHandlers` so rule mutation events live on the same log stream as auth events ([`internal/api/alerts.go`](../../internal/api/alerts.go) — see `audit()` helper).
 
 ## Prometheus alert rules
 

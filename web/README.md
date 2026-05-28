@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# web — FlowGreeks frontend
 
-## Getting Started
+Next.js 14 dashboard + landing for FlowGreeks. Consumes the Go backend over REST + WebSocket.
 
-First, run the development server:
+> Workspace-level rules live in [../CLAUDE.md](../CLAUDE.md). Frontend status, blockers, and next-step menu live in [../HANDOFF.md](../HANDOFF.md). Read both before starting.
+
+## Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000
+npm run lint
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+To exercise against a live backend, run `make demo-up` from [../backend/](../backend/) in another terminal — it boots the api binary plus a synthetic state publisher so the dashboard has data without Databento.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Status
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+~35% complete. See [../HANDOFF.md](../HANDOFF.md) for the up-to-date checklist. Currently:
 
-## Learn More
+- Landing 9 sections rendering
+- Dashboard skeleton with 11 panels rendering mock data shaped after [../backend/docs/openapi.yaml](../backend/docs/openapi.yaml)
+- WebSocket client, real API wiring, and the 13 deep-dive routes are still pending
 
-To learn more about Next.js, take a look at the following resources:
+## Source-of-truth references
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [../backend/docs/openapi.yaml](../backend/docs/openapi.yaml) — REST + WS contract; types should be derived from this, not hand-written
+- [../design-reference/mockup3/_v3.css](../design-reference/mockup3/_v3.css) + [_v3.js](../design-reference/mockup3/_v3.js) — design tokens + 9 progressive enhancements
+- [../design-reference/mockup3/DESIGN_SYSTEM.md](../design-reference/mockup3/DESIGN_SYSTEM.md) — design system spec
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Cross-cutting rules (durable — restated for convenience)
 
-## Deploy on Vercel
+These are enforced workspace-wide; full list in [../CLAUDE.md](../CLAUDE.md):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Desktop only.** No mobile, no responsive, no touch.
+- **Tickers locked to SPX + NDX.**
+- **Tabular numerics always on:** `font-feature-settings: "tnum", "ss01", "cv11"`.
+- **Color discipline:** monochrome default. Three earned accents only — `--accent-short` (`#ef4444`), `--accent-long` (`#10b981`), `--accent-warn` (`#f59e0b`). Brand pink, indigo, violet are decorative-only ambient lighting.
+- **Auth:** opaque API keys minted by flowjob.id. No signup, login, or tier UI here.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Layout
+
+```
+src/
+├── app/             Next.js App Router routes (landing + dashboard)
+├── components/      panels, primitives, charts
+└── lib/             fetchers, stores, utilities
+```

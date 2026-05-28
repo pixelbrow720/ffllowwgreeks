@@ -82,18 +82,11 @@ state.<symbol>.flow                         ← flow tape items
 narrative.<symbol>                          ← AI narrative items
 ```
 
-## Frontend: TBD in M5
+## Frontend: Next.js 14 (App Router)
 
-**Leaning SvelteKit:**
-- Smaller bundle (matters for terminal app loaded on cold start)
-- Stores API matches reactive data flow
-- Less framework overhead
+Lives in [../../web/](../../web/). TypeScript, Tailwind, Radix primitives, Recharts, framer-motion, TanStack Query. Backend's [docs/openapi.yaml](openapi.yaml) is the contract source-of-truth for types.
 
-**Or Next.js if:**
-- Need server components for SEO landing page
-- Team grows and React talent matters
-
-Decide at M5 kickoff. Mockups already in plain HTML/CSS so either works.
+Decided over SvelteKit because the parent product (flowjob.id) ships on Next.js — sharing a stack reduces context-switching cost and lets the API-key cookie issued by flowjob.id flow directly into FlowGreeks pages.
 
 ## Observability
 
@@ -132,11 +125,11 @@ Move to cloud only if we need managed services (RDS, ElastiCache) and revenue ju
 - **CI:** GitHub Actions, run go test + golangci-lint on PR (M3+)
 - **Deploy:** SSH + docker-compose pull (M2+). Move to systemd-managed binaries if container overhead matters.
 
-## Authentication & billing (M6+)
+## Authentication & billing
 
-- **Auth:** Clerk or Supabase Auth (don't roll our own)
-- **Billing:** Stripe Subscriptions
-- **Tier enforcement:** middleware on REST + WS upgrade
+- **Auth:** opaque API keys minted by flowjob.id (the parent product). FlowGreeks does not handle signups, passwords, refresh tokens, or tier gating — those live on flowjob.id. See [`internal/apikey/`](../internal/apikey/) and [docs/reference/02-auth.md](reference/02-auth.md).
+- **Billing:** owned by flowjob.id. Subscription state translates to `api_keys.rate_limit_rps` + `rate_burst` on the row, hot-swappable without redeploy.
+- **Tier enforcement:** per-key token bucket in [`internal/apikey/ratelimit.go`](../internal/apikey/ratelimit.go).
 
 ## What we're explicitly NOT using
 

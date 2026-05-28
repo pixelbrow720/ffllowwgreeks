@@ -53,8 +53,8 @@ f559570 feat(trace): distributed trace id across HTTP + NATS
 - ✅ M2: Greeks engine (BS, IV solver, analytical) + dealer position + Lee-Ready + GEX aggregator + basis tracker
 - ✅ M3: DPI composite + Charm Clock zones + Flow Pulse 3-line oscillator
 - ✅ M4: REST `/api/snapshot|/levels|/simulate` + WebSocket `/ws/live` with sub/unsub + heartbeat + drop-on-slow
-- ⏳ M5: Frontend — user is iterating on shadcn track in parallel (`flowgreeks-mockup/*-shadcn.html`)
-- ⏳ M6: Auth wiring + billing + landing — JWT/bcrypt scaffolding ready (track E), gating wiring deferred to launch
+- ⏳ M5: Frontend — Next.js 14 in `../web/`, ~35% complete (landing 9 sections + dashboard skeleton on mock data)
+- ⏳ M6: flowjob.id ↔ FlowGreeks API-key provisioning — `internal/apikey/` package + migration 0008 ready; parent-site mint/revoke flow pending kawan's Node.js work
 - ✅ M7 phase 1: `cmd/replay` binary, reader pacing 1× / N× / 0× (unpaced), CLI flags
 - ✅ M7 phase 2: `/ws/replay/<session_id>` playback control plane (track A)
 - ✅ M7 phase 3: Backtest engine (track B) + REST `POST /api/backtest/run` (track G)
@@ -167,61 +167,11 @@ Closing the structural gaps the deep review left deferred. Goal: move from "stru
 
 1. Wait for OPRA unlock → run ingest + compute live during US market hours → verify SPX/NDX option strike matrix populates and state flows
 2. Once `dealer_state_1s` has a few sessions of real data, exercise `POST /api/backtest/run` against real signals
-3. M5 frontend integration (separate shadcn track) — `/ws/live`, `/ws/replay/{id}`, `/api/snapshot`, `/api/simulate`, `/api/backtest/run`, `/api/alerts/rules` all wired and waiting
-4. M6 auth gate flip: set `AUTH_ENABLED=true` + `JWT_SECRET=<32+ char>`, wrap protected routes with `auth.Middleware(issuer)`
+3. M5 frontend integration (`../web/`) — `/ws/live`, `/ws/replay/{id}`, `/api/snapshot`, `/api/simulate`, `/api/backtest/run`, `/api/alerts/rules` all wired and waiting
+4. flowjob.id ↔ FlowGreeks API-key provisioning protocol — parent site mints + revokes via `apikey.Generate` (or equivalent in TS), INSERTs into shared `api_keys` table; flip `APIKEY_ENABLED=true` once provisioning is live
 5. Stress test 1000 concurrent WS clients (deferred to launch readiness)
 
 **Blockers:** Databento OPRA account lock (vendor-side, manual recovery).
-
----
-
-## Active milestone: M0–M9 — ✅ BACKEND COMPLETE
-
-Detailed per-milestone DoD lives in [ROADMAP.md](ROADMAP.md). Top-of-file
-**Current state** section above is the source of truth for what's done
-and what's pending. The detailed checklists below are kept as a record
-of the journey but are no longer used as the working surface.
-
-See full DoD in [ROADMAP.md](ROADMAP.md#m4--api--websocket-2-weeks).
-
-- [x] REST endpoints: `GET /api/snapshot/{symbol}`, `GET /api/levels/{symbol}`
-- [x] WebSocket `/ws/live` with subscription model (subscribe/unsubscribe per symbol/kind)
-- [x] WS handles heartbeat (15s), bounded send channel, drop-on-slow-client
-- [x] Per-connection bounded send channel
-- [x] CORS middleware for development (allows configured origins)
-- [ ] OpenAPI / Postman collection (deferred to M6)
-- [ ] Stress test 1000 concurrent WS clients (deferred to M6 launch readiness)
-- [x] **End-to-end smoke test verified**: synthetic state publisher → NATS → api cache → REST returns full snapshot, projected levels, WS delivers live snapshot after subscribe
-
-**Time spent on M4:** ~2 hours (sequential, 3 parallel agents earlier had upstream errors so I built sequentially). All 10 unit tests pass + e2e smoke test verified.
-
----
-
-## Next milestone: M7 — Replay + Backtest
-
-**Why M7 next, skipping M5/M6 for now:** Frontend (M5) is being built on a parallel shadcn track separately. Auth + billing (M6) doesn't need to land until launch readiness. M7 replay infrastructure unblocks testing M2 + M3 with real historical OPRA data we already own (1 year archive), without needing live OPRA gateway access.
-
-See [ROADMAP.md M7](ROADMAP.md#m7--replay--backtest-3-weeks). Plan:
-1. `cmd/replay` worker that reads ticks from Postgres `ticks` hypertable, replays at configurable speed (1×, 4×, 60×, etc.) into the same NATS subjects compute consumes from
-2. WS topic `/ws/replay/<session_id>` for playback control (play, pause, seek, speed)
-3. Frontend Replay page already mocked — wires straight up to `/ws/replay/...`
-4. Backtest engine: same replay machinery, batch mode (no WS), runs a signal across N days, outputs PnL/winrate/Sharpe
-
-See full DoD in [ROADMAP.md](ROADMAP.md#m3--dpi--charm-clock-signals-2-weeks).
-
-- [x] Implement DPI 5 components (NGS, CV, VS, TTC, FC) in `internal/dealer/dpi.go`
-- [x] Composite weighting + EWMA smoothing (per-symbol state)
-- [x] Charm velocity rolling window (per `charmSymbolState` 30-sample buffer)
-- [x] Charm zone classifier (WEAK/RISING/PEAK/FADING/PIN) in `internal/dealer/charm_clock.go`
-- [x] Flow Pulse oscillator (HIRO-style, decomposed): gamma/charm/vanna pulse per 1s bucket, EWMA smoothing in `internal/dealer/flow_pulse.go`
-- [x] Persist `dealer_state_1s` rows — *via JSON publish to `state.<sym>.gex` for now; binary persistence in M4*
-- [x] **Synthetic tick generator** (`internal/feed/synthetic/`) — deterministic SPX-style chain with quotes/trades/OI/futures, used for component testing without live data
-- [x] `cmd/compute` orchestrator now wires DPI scorer + Charm classifier + Flow Pulse tracker into the per-second aggregator. Per-trade hot path also folds trades into Flow Pulse using cached IV → analytical Greeks. Rolling 5-min flow window per pipeline drives DPI Flow Concentration.
-- [x] Build clean, vet clean, all tests pass (60+ across packages)
-- [ ] CI lint + test pipeline (GitHub Actions) — deferred to M6
-- [ ] Backtest replay calibration — deferred until M7 historical replay infra is built
-
-**Time spent on M3:** ~3 hours. 2 of 3 parallel agents succeeded (DPI + Flow Pulse); third (Charm Clock) hit upstream API error mid-write but had completed the bulk of the file (preserved as .bak), restored manually + small test-condition fix.
 
 ---
 
@@ -266,61 +216,9 @@ Append-only. Date · context · decision.
 
 ## Open questions
 
-- [ ] Hosting decision: Hetzner AX102 vs OVH equivalent vs other? (Decide before M1 ingest deploy)
-- [ ] Vendor's exact OPRA delivery format (SBE direct, or PCAP, or normalized JSON)? Affects M1 decoder work
-- [ ] Does the OPRA archive include NBBO already, or do we synthesize from quotes? Affects backfill ingest path
-- [ ] CME MDP3 access — same vendor or separate?
+- [ ] Hosting decision: Hetzner AX102 vs OVH equivalent vs other? (Decide before any production cutover)
 - [ ] Domain name registered yet? (`flowgreeks.com`, `.io`, etc.)
-- [ ] Discord vs other community platform for beta users (M6)
-
----
-
-## Workstream status (per-area)
-
-### Backend services
-- ingest: ✅ M1 wired (databento adapter + NATS publisher + archive writer + dispatch orchestrator). Awaits live key smoke test.
-- compute: ✅ M2 wired (classifier + position + Greeks + basis + GEX aggregator). Publishes state.<sym>.gex JSON every 1s. Awaits live verification.
-- api: ✅ M0 skeleton (health + metrics + slog + chi + graceful shutdown)
-- replay: not started
-
-### Models
-- IV solver: ✅ Brent's method, warm-start, 1µs/op
-- Greeks: ✅ analytical, single-pass, 259ns/op, 0 alloc
-- Lee-Ready classifier: ✅ 71ns/op
-- Dealer position estimator: ✅ Apply 49ns/op
-- GEX aggregator (Net GEX, walls, regime): ✅ 5.2µs for 200 strikes
-- Basis tracker (ES/NQ front/back, EWMA, rollover): ✅ 156ns/op
-- DPI: spec'd, not coded
-- Charm Clock zone classifier: spec'd, not coded
-- Pin engine: spec'd, not coded
-- What-If simulator: spec'd, not coded
-- Flow Pulse oscillator: spec'd, not coded
-
-### Data
-- TS schema: defined ([DATA_MODEL.md](DATA_MODEL.md)), migrations 000001 (schema_version) + 000002 (ticks hypertable + compression + retention) **APPLIED**
-- Backfill: not started (deferred — non-blocking)
-- Live ingest: ✅ wired, awaits key
-
-### Models
-- IV solver: spec'd ([COMPUTE_MODEL.md](COMPUTE_MODEL.md)), not coded
-- Greeks: spec'd, not coded
-- DPI: spec'd, not coded
-- Charm Clock: spec'd, not coded
-- Pin engine: spec'd, not coded
-- What-If simulator: spec'd, not coded
-- Flow Pulse: spec'd, not coded
-- Basis tracker: spec'd, not coded
-
-### Frontend
-- Mockups: ✅ done in `../flowgreeks-mockup/` (HTML/CSS reference, dashboard redesigned with monochrome discipline)
-- Production app: not started (M5+)
-
-### Ops
-- Hosting: not chosen
-- CI/CD: not set up
-- Monitoring: ✅ /metrics endpoint live (no Prometheus server yet)
-- Backups: not set up
-- Local dev stack: docker-compose written, not yet verified running
+- [ ] Discord vs other community platform for beta users (post-launch)
 
 ---
 

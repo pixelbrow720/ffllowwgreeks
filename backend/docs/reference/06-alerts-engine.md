@@ -84,18 +84,21 @@ POST   /api/alerts/rules                 create or upsert
 DELETE /api/alerts/rules/{id}            remove
 ```
 
-User identity priority ([`api/alerts.go:45`](../../internal/api/alerts.go#L45)):
+User identity priority ([`api/alerts.go`](../../internal/api/alerts.go) — `callerOwnerID`):
 
 ```go
-func callerUserID(r *http.Request) string {
-    if c, ok := auth.FromContext(r.Context()); ok {
-        return strconv.FormatInt(c.UserID, 10)
+func callerOwnerID(r *http.Request) string {
+    if k, ok := apikey.FromContext(r.Context()); ok {
+        if k.ParentUserID != "" {
+            return k.ParentUserID
+        }
+        return strconv.FormatInt(k.ID, 10)
     }
     return r.Header.Get("X-User-ID")    // dev escape hatch
 }
 ```
 
-JWT claims win when `auth.Middleware` is mounted; the `X-User-ID` header is only honoured when `AUTH_ENABLED=false` so a logged-in user can't spoof someone else's id by setting the header.
+The resolved API key wins when `apikey.Middleware` is mounted (parent_user_id preferred, falling back to the stringified key id); the `X-User-ID` header is only honoured when `APIKEY_ENABLED=false` so a logged-in caller can't spoof someone else's tenant by setting the header.
 
 Pagination ([`api/alerts.go:63`](../../internal/api/alerts.go#L63)):
 

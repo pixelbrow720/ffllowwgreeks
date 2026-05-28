@@ -37,6 +37,9 @@ run-compute: ## Run compute binary directly
 run-ingest: ## Run ingest binary directly (needs DATABENTO_API_KEY)
 	go run ./cmd/ingest
 
+replay-dbn: ## Replay a day of DBN files. Usage: make replay-dbn DIR=data/databento/2026-02-02
+	go run ./cmd/replay_dbn -dir $(DIR)
+
 # ─── Demo / dev helpers ───
 demo-up: ## Start demo stack (api + synth_state, no databento)
 	docker compose -f deploy/docker-compose.yml --profile demo up -d

@@ -19,7 +19,7 @@ Defense-in-depth, **five layers deep** (was 7 before the pivot — no longer nee
 
 The next concrete blocker is the Databento OPRA account unlock — until that lands, we cannot do live verification, calibration, or sustained load tests against real data.
 
-While waiting, the **frontend track (mockup2/)** is the most useful work.
+While waiting, the **frontend track (`../web/`)** is the most useful work.
 
 ## What was done in this session (auth pivot)
 
@@ -57,7 +57,7 @@ While waiting, the **frontend track (mockup2/)** is the most useful work.
 
 ### Option A — Frontend track (most useful)
 
-User's stated focus: mockup2/. shadcn aesthetic, monochrome, color only when earned. 9 HTML pages already exist in `flowgreeks-mockup/mockup2/`.
+User's stated focus: `../web/`. shadcn aesthetic, monochrome, color only when earned. Next.js 14 with landing 9 sections + dashboard skeleton (11 panels on mock data) already in place.
 
 Ground rules from prior sessions:
 - **Desktop only** — never suggest mobile responsive
@@ -102,5 +102,5 @@ When Databento unlocks: backfill historical data, populate `dealer_state_1s`, ru
 2. Read this file (`HANDOFF.md`)
 3. Read `docs/reference/README.md` — pick the subsystem you need
 4. `git log --oneline -20`
-5. Ask user: "Lanjut frontend mockup2/, nunggu OPRA, atau pre-integration polish?"
+5. Ask user: "Lanjut frontend `../web/`, nunggu OPRA, atau pre-integration polish?"
 6. Don't start work until user picks a direction.

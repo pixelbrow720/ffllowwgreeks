@@ -34,6 +34,15 @@ archive/**/.ruff_cache/
 archive/**/.mypy_cache/
 archive/**/.hypothesis/
 
+# Validation harness (offline math cross-check, NOT shipped)
+backend/scripts/validation/.venv/
+backend/scripts/validation/__pycache__/
+backend/scripts/validation/**/__pycache__/
+backend/scripts/validation/outputs/
+
+# Databento historical pull (large, regeneratable, never commit)
+backend/data/
+
 # Editors / OS
 .vscode/
 .idea/

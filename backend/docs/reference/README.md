@@ -14,12 +14,12 @@ After that, follow the recommended order:
 |---|---|---|
 | 00 | [`00-system-overview.md`](00-system-overview.md) | Binary topology, NATS subjects, storage, latency budget |
 | 01 | [`01-data-pipeline.md`](01-data-pipeline.md) | How a tick gets from Databento to a websocket client |
-| 02 | [`02-auth.md`](02-auth.md) | Signup / login / refresh rotation / family revocation / lockout |
+| 02 | [`02-auth.md`](02-auth.md) | Opaque API-key middleware, per-key rate limit, revocation |
 | 03 | [`03-math-pipeline.md`](03-math-pipeline.md) | Black-Scholes → IV solver → Greeks |
 | 04 | [`04-dealer-model.md`](04-dealer-model.md) | DPI, Charm Clock, GEX, Pin, Simulator |
 | 05 | [`05-time-machine.md`](05-time-machine.md) | Replay session + backtest engine |
 | 06 | [`06-alerts-engine.md`](06-alerts-engine.md) | Rules → Triggers → sinks (broker, webhook + SSRF guard) |
-| 07 | [`07-defense-in-depth.md`](07-defense-in-depth.md) | 7-layer security model, layer by layer |
+| 07 | [`07-defense-in-depth.md`](07-defense-in-depth.md) | 5-layer security model, layer by layer |
 | 08 | [`08-deployment-ops.md`](08-deployment-ops.md) | Docker compose, k8s probes, graceful shutdown, CI/nightly |
 | 09 | [`09-observability.md`](09-observability.md) | Trace ids, audit log, full metric catalog, alert rules, investigation playbook |
 
@@ -27,13 +27,12 @@ After that, follow the recommended order:
 
 Every diagram, every claim, points at the code that proves it:
 
-> Constants ([`types.go`](../../internal/auth/types.go)):
+> Constants ([`types.go`](../../internal/apikey/types.go)):
 > ```
-> LockoutThreshold  = 10
-> LockoutDuration   = 15 * time.Minute
+> LookupTimeout = 2 * time.Second
 > ```
 >
-> Implementation: [`handlers.go:119`](../../internal/auth/handlers.go#L119).
+> Implementation: [`middleware.go`](../../internal/apikey/middleware.go).
 
 If a citation looks stale (line number drift, file moved), **the doc is wrong, not the code**. Open the file, find the new location, fix the citation in the same change that moved the code. CI does not enforce this — humans do.
 

@@ -105,24 +105,6 @@ type BasisState struct {
 }
 ```
 
-### UserPrefs (per user, stored in Postgres `users` table once auth lands in M6)
-
-```go
-// internal/api/prefs.go
-type UserPrefs struct {
-    UserID        string
-    Timezone      string      // IANA TZ identifier, e.g. "Asia/Jakarta", "America/New_York"
-    PriceView     PriceView   // SPOT or FUTURES — applies per symbol or globally
-    PriceViewPer  map[Symbol]PriceView  // optional per-symbol override
-    DefaultSymbol Symbol      // SPX or NDX on dashboard load
-    NumberFormat  string      // "en-US", "id-ID", etc.
-}
-
-type PriceView uint8  // SPOT=1, FUTURES=2
-```
-
-User prefs are loaded once on WS connect, cached in connection state. Changes via REST `PUT /api/me/prefs` push a `prefs.updated` WS event so all open tabs sync.
-
 ### FlowTapeItem
 
 ```go

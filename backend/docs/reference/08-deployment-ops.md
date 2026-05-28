@@ -98,11 +98,12 @@ Migrations in [`scripts/migrations/`](../../scripts/migrations/):
 |---|---|
 | `0001_init` | `schema_version` table |
 | `0002_ticks_hypertable` | `ticks` hypertable + retention |
-| `0003_users` | accounts |
+| `0003_users` | (rolled back by 0008) accounts table |
 | `0004_dealer_state` | `dealer_state_1s` hypertable + 7d compression + 14mo retention |
-| `0005_refresh_tokens` | refresh token persistence |
-| `0006_refresh_token_family` | `family_id` column for reuse detection |
-| `0007_account_lockout` | `failed_login_count` + `locked_until` |
+| `0005_refresh_tokens` | (rolled back by 0008) refresh token persistence |
+| `0006_refresh_token_family` | (rolled back by 0008) `family_id` reuse detection |
+| `0007_account_lockout` | (rolled back by 0008) `failed_login_count` + `locked_until` |
+| `0008_api_keys` | drops `users` + `refresh_tokens`; adds `api_keys` (key_hash, parent_user_id, rate_limit_rps, rate_burst, expires_at, revoked_at) |
 
 ## Health probes (k8s)
 
@@ -176,20 +177,16 @@ The 5s drain window is critical for k8s rolling restarts — without it, the pod
 
 ## Production config refusals
 
-`cmd/api` boot refuses (`os.Exit(2)`) under `APP_ENV=production` if:
+`cmd/api` boot refuses under `APP_ENV=production` if any of:
 
-- `JWT_SECRET` empty / dev placeholder / < 32 chars
 - `POSTGRES_PASSWORD` is the dev default
+- `APIKEY_ENABLED=false` (would leave the protected surface open)
 - `LOG_LEVEL=debug`
 - `API_CORS_ORIGINS` empty
 
-Check is in [`internal/config/config.go`](../../internal/config/config.go) `Validate()`. Dev / staging / test bypass.
+Check is in [`internal/config/config.go`](../../internal/config/config.go) `validateProduction()`. Dev / staging / test / ci bypass.
 
-To satisfy `JWT_SECRET`:
-
-```
-go run ./scripts/jwt_secret -raw >> .env
-```
+API keys are minted by flowjob.id; this binary does not generate or distribute them.
 
 ## CI / CD shape
 

@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>FlowGreeks Backend — Implementation Deck</title>
+<style>
+  :root{
+    --bg:#0a0a0a; --fg:#e8e8e8; --dim:#888; --line:#222; --hi:#fff;
+    --warn:#f59e0b; --bad:#ef4444; --ok:#10b981;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    font-feature-settings:"tnum","ss01","cv11"; height:100%; overflow:hidden}
+  #stage{position:fixed; inset:0; display:flex; align-items:center; justify-content:center}
+  .slide{position:absolute; inset:0; padding:56px 80px; display:none;
+    flex-direction:column; opacity:0; transition:opacity .25s ease}
+  .slide.active{display:flex; opacity:1}
+  .slide h1{font-size:42px; margin:0 0 8px; color:var(--hi); letter-spacing:-.5px; font-weight:500}
+  .slide h2{font-size:14px; margin:0 0 36px; color:var(--dim); font-weight:400; text-transform:uppercase; letter-spacing:2px}
+  .slide p,.slide li{font-size:15px; line-height:1.7; color:var(--fg)}
+  .slide ul{padding-left:18px; margin:8px 0}
+  pre{background:#050505; border:1px solid var(--line); padding:18px 22px;
+    font-size:12px; line-height:1.55; color:#cfcfcf; overflow:auto; margin:8px 0}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:32px; flex:1; min-height:0}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; flex:1; min-height:0}
+  .card{border:1px solid var(--line); padding:22px 24px; background:#0d0d0d}
+  .card h3{margin:0 0 12px; font-size:13px; color:var(--hi); text-transform:uppercase; letter-spacing:1.5px; font-weight:500}
+  .pill{display:inline-block; padding:2px 10px; border:1px solid var(--line); font-size:11px; color:var(--dim); margin-right:6px}
+  .pill.ok{color:var(--ok); border-color:#10b98144}
+  .pill.warn{color:var(--warn); border-color:#f59e0b44}
+  .pill.bad{color:var(--bad); border-color:#ef444444}
+  .num{font-size:64px; color:var(--hi); line-height:1; letter-spacing:-2px}
+  .lbl{color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:2px; margin-top:8px}
+  .row{display:flex; gap:48px; align-items:flex-end; margin:18px 0}
+  .ascii{color:#bdbdbd}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .dim{color:var(--dim)}
+  .hi{color:var(--hi)}
+  table{width:100%; border-collapse:collapse; font-size:13px}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{color:var(--dim); font-weight:400; text-transform:uppercase; letter-spacing:1.5px; font-size:11px}
+  /* chrome */
+  #hud{position:fixed; bottom:18px; left:0; right:0; display:flex;
+    justify-content:space-between; padding:0 32px; font-size:11px; color:var(--dim);
+    text-transform:uppercase; letter-spacing:2px; pointer-events:none; z-index:5}
+  #progress{position:fixed; top:0; left:0; height:2px; background:var(--hi); width:0; transition:width .25s}
+  #brand{position:fixed; top:18px; left:32px; font-size:11px; color:var(--dim);
+    text-transform:uppercase; letter-spacing:3px; z-index:5}
+  #brand b{color:var(--hi); font-weight:500}
+  #help{position:fixed; bottom:18px; right:32px; font-size:11px; color:var(--dim);
+    text-transform:uppercase; letter-spacing:2px; z-index:5}
+  kbd{border:1px solid var(--line); padding:1px 6px; font-family:inherit; color:var(--fg); margin:0 2px}
+  /* title slide */
+  .title-slide{justify-content:center; align-items:flex-start}
+  .title-slide h1{font-size:84px; line-height:1; margin-bottom:24px}
+  .title-slide .sub{color:var(--dim); font-size:18px; max-width:720px; line-height:1.6}
+  .ascii-banner{color:#444; font-size:11px; line-height:1.3; margin-bottom:48px; white-space:pre}
+  /* bar viz */
+  .bar{height:8px; background:#1a1a1a; position:relative; margin:6px 0 14px}
+  .bar > i{position:absolute; left:0; top:0; bottom:0; background:var(--hi); display:block}
+  .bar.warn > i{background:var(--warn)}
+  .bar.bad > i{background:var(--bad)}
+  .bar.ok > i{background:var(--ok)}
+  /* status dot */
+  .dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--dim); margin-right:8px; vertical-align:middle}
+  .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+</style>
+</head>
+<body>
+<div id="brand"><b>FLOWGREEKS</b> &nbsp; / &nbsp; backend implementation deck</div>
+<div id="progress"></div>
+<div id="stage">
+<section class="slide title-slide" data-title="cover">
+<pre class="ascii-banner">
+  ╔═══════════════════════════════════════════════════╗
+  ║   ░░░  FLOWGREEKS  ░░░  READ THE DEALER  ░░░     ║
+  ║   ──── 0DTE SPX & NDX dealer-flow intelligence ── ║
+  ╚═══════════════════════════════════════════════════╝
+</pre>
+<h1>Backend<br>Implementation</h1>
+<p class="sub">Apa yang sudah dibangun, gimana cara kerjanya, kekurangan dan blocker-nya, serta apa yang masih harus dikerjakan sebelum production.</p>
+<div style="margin-top:48px; display:flex; gap:32px">
+  <div><span class="pill ok">M0–M9 complete</span></div>
+  <div><span class="pill warn">OPRA blocked</span></div>
+  <div><span class="pill">2026-05-28</span></div>
+</div>
+</section>
+
+<section class="slide" data-title="01 · what flowgreeks is">
+<h1>Apa itu FlowGreeks?</h1>
+<h2>Real-time options flow + dealer positioning intelligence</h2>
+<div class="grid2">
+  <div>
+    <p>Platform yang nge-translate state buku dealer jadi sinyal aktionable buat trader 0DTE SPX & NDX. Bukan analytics terminal — tapi <span class="hi">"apa yang HARUS dilakukan dealer berikutnya"</span> dalam dollar notional.</p>
+    <p style="margin-top:24px">Tagline: <span class="hi">"Read the Dealer."</span></p>
+    <p style="margin-top:24px">Distribusi: <span class="dim">add-on di dalam flowjob.id (parent product). Tidak dijual standalone — akses via opaque API key dari bootcamp graduation.</span></p>
+  </div>
+  <div class="card">
+    <h3>Differentiator</h3>
+    <ul>
+      <li><b>Predictive forced-flow</b> — bukan cuma show GEX, tapi simulasi paksa hedging dealer</li>
+      <li><b>Charm Clock</b> — visualisasi window decay charm intraday</li>
+      <li><b>0DTE-only</b> — no 3,500-ticker bloat, deliberate narrow surface</li>
+      <li><b>Replay + Backtest</b> — time machine + signal validation</li>
+      <li><b>Desktop-only</b> — terminal-grade, no mobile compromise</li>
+    </ul>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="02 · stack">
+<h1>Tech Stack</h1>
+<h2>Committed choices, with rationale</h2>
+<div class="grid3">
+  <div class="card">
+    <h3>Hot path</h3>
+    <p><b>Go 1.22+</b><br><span class="dim">Solo-dev velocity, lower context cost saat pairing dgn AI, perf cukup buat sub-100ms target.</span></p>
+    <p style="margin-top:16px"><b>NATS JetStream</b><br><span class="dim">Sub-ms latency, single binary, fanout ingest→compute→api.</span></p>
+  </div>
+  <div class="card">
+    <h3>Storage</h3>
+    <p><b>TimescaleDB</b><br><span class="dim">Hypertable buat ticks + dealer_state_1s. SQL-compatible, single-binary ops.</span></p>
+    <p style="margin-top:16px"><b>Redis 7+</b><br><span class="dim">Sliding-window state cache: DPI / charm / walls.</span></p>
+  </div>
+  <div class="card">
+    <h3>Edge</h3>
+    <p><b>chi router</b> · REST + /ws/live + /ws/replay</p>
+    <p style="margin-top:16px"><b>Databento dbn-go</b><br><span class="dim">OPRA Pillar (US options) + GLBX MDP3 (CME futures).</span></p>
+    <p style="margin-top:16px"><b>Prometheus + Grafana</b><br><span class="dim">10-panel pipeline dashboard, 9 alert rules.</span></p>
+  </div>
+</div>
+<p style="margin-top:24px"><span class="dim">Hosting: bare-metal Hetzner/OVH €120-200/mo recommended (3-5x cheaper vs cloud, predictable perf).</span></p>
+</section>
+
+<section class="slide" data-title="03 · architecture">
+<h1>Arsitektur</h1>
+<h2>4 binary, 1 NATS bus, 2 store</h2>
+<pre>
+   OPRA Pillar              GLBX MDP3
+       │                        │
+       └────────┬───────────────┘
+                ▼
+        ┌───────────────┐
+        │  cmd/ingest   │   parse · normalize · publish
+        │  cmd/replay   │   (replay swap-in untuk historical)
+        └───────┬───────┘
+                │ ticks.&lt;sym&gt;.{quote,trade,future}.&lt;...&gt;
+                ▼
+        ╔═══════════════╗
+        ║ NATS JetStream║   TICKS · STATE · FLOW streams
+        ╚═══════╤═══════╝
+                │
+                ▼
+        ┌───────────────┐         ┌──────────────────┐
+        │  cmd/compute  │ ──────► │ TimescaleDB      │
+        │  ─────────────│         │  ticks           │
+        │  greeks · IV  │         │  dealer_state_1s │
+        │  GEX · DPI    │         └──────────────────┘
+        │  Charm · Pin  │         ┌──────────────────┐
+        │  Flow Pulse   │ ──────► │ Redis            │
+        │  Simulator    │         │  sliding window  │
+        └───────┬───────┘         └──────────────────┘
+                │ state.&lt;sym&gt;.gex · narrative.&lt;sym&gt;
+                ▼
+        ┌───────────────┐
+        │   cmd/api     │   REST · /ws/live · /ws/replay
+        └───────┬───────┘
+                ▼
+              web/   (Next.js 14)
+</pre>
+<p><span class="dim">Process-level microservices, <b>bukan</b> network-level. 4 binary di 1 host, NATS over loopback. Horizontal split deferred until needed.</span></p>
+</section>
+
+<section class="slide" data-title="04 · data pipeline">
+<h1>Data Pipeline</h1>
+<h2>Tick → WebSocket dalam &lt;100ms (target)</h2>
+<div class="grid2">
+  <div>
+    <pre>
+Vendor WS
+   │  wire bytes
+   ▼
+databento.Client
+   - ws session
+   - bootstrap registry  ← OPRA fix
+   - decoder routes:
+       Mbp1Msg  → Tick (quote)
+       Cmbp1Msg → Tick (consolidated)
+       Mbp0Msg  → Tick (trade)
+       Stat     → Tick (OI)
+   │
+   ▼ feed.Tick (90 bytes, fixed)
+runDispatch
+   ├─ NATS publish (sync, JS ack)
+   └─ Archive write (async, COPY FROM)
+   │
+   ▼
+cmd/compute
+   handleTick:
+     OI    → positions
+     Quote → quotes + IV
+     Trade → classifier + position delta
+     Future→ basis tracker</pre>
+  </div>
+  <div>
+    <h3 style="margin:0 0 12px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Latency budget per stage (p99)</h3>
+    <div>ingest <span class="dim">5ms</span></div>
+    <div class="bar"><i style="width:5%"></i></div>
+    <div>normalize <span class="dim">2ms</span></div>
+    <div class="bar"><i style="width:2%"></i></div>
+    <div>compute <span class="dim">30ms</span></div>
+    <div class="bar"><i style="width:30%"></i></div>
+    <div>fanout <span class="dim">10ms</span></div>
+    <div class="bar"><i style="width:10%"></i></div>
+    <div>buffer <span class="dim">53ms</span></div>
+    <div class="bar"><i style="width:53%; background:#333"></i></div>
+    <p class="dim" style="margin-top:14px; font-size:12px">Total ≤ 100ms wire-to-WebSocket. Hot path = zero allocation steady state (sync.Pool, pre-alloc buffers).</p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="05 · greeks engine">
+<h1>Greeks Engine</h1>
+<h2>Black-Scholes · IV solver Brent · analytical Greeks</h2>
+<div class="grid2">
+  <div>
+    <pre>
+internal/greeks/
+
+  Price(S, K, T, r, σ, callOrPut)
+    └─ Black-Scholes closed-form
+       bench: <span class="ok">105 ns/op · 0 alloc</span>
+
+  ImpliedVol(price, S, K, T, r, type)
+    └─ Brent root-finder, σ ∈ [0.001, 5.0]
+    └─ <b>auto-widen</b> bila residual share sign
+       di kedua endpoint (deep-OTM 0DTE fix)
+       bench: <span class="ok">1.03 µs/op · 0 alloc</span>
+
+  All(...) → {delta, gamma, theta,
+              vega, rho, charm, vanna}
+    └─ analytical, semua dari N(d1)/N(d2)
+       bench: <span class="ok">259 ns/op · 0 alloc</span>
+
+  TimeToExpiryYears(expiryDate, now)
+    └─ TZ-aware (America/New_York)
+    └─ cached tz.Location (deep-review fix)</pre>
+  </div>
+  <div class="card">
+    <h3>Validation status</h3>
+    <table>
+      <tr><th>Item</th><th>Status</th></tr>
+      <tr><td>Unit tests pricing & Greeks</td><td><span class="ok">✓</span></td></tr>
+      <tr><td>IV solver convergence cases</td><td><span class="ok">✓</span></td></tr>
+      <tr><td>Zero-alloc gate (bench)</td><td><span class="ok">✓</span></td></tr>
+      <tr><td>Cross-check vs <b>py_vollib</b></td><td><span class="warn">pending</span></td></tr>
+      <tr><td>Property-based invariants</td><td><span class="warn">pending</span></td></tr>
+      <tr><td>Calibrasi vs ground truth flow</td><td><span class="bad">blocked OPRA</span></td></tr>
+    </table>
+    <p style="margin-top:18px; font-size:13px"><span class="dim">3 dari 6 item bisa dikerjain offline tanpa Databento — udah jadi gap research yg di-track.</span></p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="06 · dealer model">
+<h1>Dealer Model</h1>
+<h2>6 derived measurements, semua function of position × Greeks × flow</h2>
+<table>
+  <tr><th>Component</th><th>Apa yang dijawab</th><th>Output</th></tr>
+  <tr><td><b>GEX aggregator</b></td><td>Dealers long/short gamma? Walls dimana?</td><td>NetGEX, ZeroGamma, CallWall, PutWall, Regime</td></tr>
+  <tr><td><b>DPI</b></td><td>Seberapa berat tekanan hedging dealer sekarang?</td><td>Composite 0–100 (5 komponen tertimbang)</td></tr>
+  <tr><td><b>Charm Clock</b></td><td>Window charm-decay intraday di zona apa?</td><td>WEAK · RISING · PEAK · FADING · PIN</td></tr>
+  <tr><td><b>Flow Pulse</b></td><td>Pressure didorong gamma, charm, atau vanna?</td><td>3-line oscillator (decomposed)</td></tr>
+  <tr><td><b>Pin Probability</b></td><td>EOD bakal pin di strike mana?</td><td>Probability per strike</td></tr>
+  <tr><td><b>What-If Simulator</b></td><td>Spot move X% / time +Y min → forced hedge?</td><td>Forced-flow notional ($)</td></tr>
+</table>
+<p style="margin-top:24px"><span class="dim">+ 3 per-tick maintainer:</span> <b>LeeReadyClassifier</b> (tag aggressor BUY/SELL), <b>Positions</b> (net dealer position per strike/side), <b>BasisTracker</b> (ES/NQ vs SPX/NDX, EWMA-smoothed).</p>
+<p style="margin-top:8px"><span class="dim">Semua consumer jalan di 1Hz aggregator loop di cmd/compute, fanout ke NATS state.&lt;sym&gt;.gex + narrative.&lt;sym&gt; + COPY ke Postgres dealer_state_1s.</span></p>
+</section>
+
+<section class="slide" data-title="07 · DPI">
+<h1>DPI — Dealer Pressure Index</h1>
+<h2>0–100 EWMA composite, 5 komponen tertimbang</h2>
+<div class="grid2">
+  <div>
+    <pre>
+NetGEX_pressure   = clip01(|NetGEX|/5e9) × 100
+                       weight: <b>0.30</b>
+
+Charm_velocity    = clip01(|Δcharm|/5e6) × 100
+                       weight: <b>0.25</b>
+
+Vanna_sensitivity = clip01(|vanna|/1e6) × 100
+                       weight: <b>0.20</b>
+
+TTC               = (timeLeft/sessionLen)^1.5 × 100
+                       weight: <b>0.15</b>   convex ramp ke EOD
+
+Flow_concentration= clip01(HHI × 5.0) × 100
+                       weight: <b>0.10</b>   HHI = Σ(flow_i/Σflow)²
+─────────────────────────────────────
+Σ smoothed (EWMA α=0.3) → <b>DPI 0–100</b></pre>
+  </div>
+  <div>
+    <h3 style="margin:0 0 16px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Bobot komponen</h3>
+    <div>NetGEX <span class="dim">0.30</span></div>
+    <div class="bar"><i style="width:30%"></i></div>
+    <div>Charm <span class="dim">0.25</span></div>
+    <div class="bar"><i style="width:25%"></i></div>
+    <div>Vanna <span class="dim">0.20</span></div>
+    <div class="bar"><i style="width:20%"></i></div>
+    <div>TTC <span class="dim">0.15</span></div>
+    <div class="bar"><i style="width:15%"></i></div>
+    <div>Flow conc. <span class="dim">0.10</span></div>
+    <div class="bar"><i style="width:10%"></i></div>
+    <p class="warn" style="margin-top:24px; font-size:13px">⚠ Normalisasi konstan ($5B GEXNorm, dst.) baru "starting point" buat SPX 0DTE. Production deploy harus diganti rolling p90/p95 dari archive — ini calibration step yang ke-block OPRA.</p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="08 · charm clock & pin">
+<h1>Charm Clock + Pin Probability</h1>
+<h2>Intraday timing engine</h2>
+<div class="grid2">
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Charm Clock — 5 zona</h3>
+    <pre>
+velocity (Δdelta/min)
+   │              ┌──── PEAK ────┐
+   │     RISING ──┘              └── FADING
+   │   ╱                                ╲
+   │ ╱                                    ╲ PIN
+   │  WEAK                                  ▔▔
+   └─────────────────────────────────────────►  time
+   09:30                                  16:00 ET</pre>
+    <p style="font-size:13px"><span class="dim">Klasifikasi zona berdasarkan |charm velocity| evolution dalam session. Two-generation reset (deep-review fix) cegah memori basi dari sesi sebelumnya bocor ke pagi berikutnya.</span></p>
+  </div>
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Pin Probability Engine</h3>
+    <pre>
+EOD candidate strike i:
+
+  weight_i = OI_i × |gamma_i|
+  proximity_i = exp(-((spot - K_i)/σ)²)
+
+  P(pin = K_i) = weight_i × proximity_i
+                 ─────────────────────
+                 Σⱼ weight_j × prox_j</pre>
+    <p style="font-size:13px"><span class="dim">Output: probability mass function across active strikes. Yang dirender ke FE adalah top-N strike + spot offset.</span></p>
+    <h3 style="margin:18px 0 10px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">What-If Simulator</h3>
+    <p style="font-size:13px"><span class="dim">Reprice setiap kontrak di shocked spot/time/vol, re-aggregate dealer net delta &amp; gamma, return forced-hedge notional dalam $.</span></p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="09 · API surface">
+<h1>API Surface</h1>
+<h2>REST + 2 WebSocket channel</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>REST (chi router)</h3>
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Auth</th></tr>
+      <tr><td>GET</td><td>/api/snapshot/{sym}</td><td><span class="dim">public</span></td></tr>
+      <tr><td>GET</td><td>/api/levels/{sym}</td><td><span class="dim">public</span></td></tr>
+      <tr><td>POST</td><td>/api/simulate/{sym}</td><td><span class="ok">key</span></td></tr>
+      <tr><td>POST</td><td>/api/backtest/run</td><td><span class="ok">key</span></td></tr>
+      <tr><td>GET/POST/DELETE</td><td>/api/alerts/rules</td><td><span class="ok">key</span></td></tr>
+      <tr><td>GET</td><td>/health · /health/live · /health/ready</td><td><span class="dim">public</span></td></tr>
+      <tr><td>GET</td><td>/metrics</td><td><span class="dim">public</span></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>WebSocket</h3>
+    <p><b>/ws/live</b><br><span class="dim">Sub/unsub per (symbol, kind). Heartbeat 15s. Drop-on-slow consumer. Resume on reconnect: snapshot.replay event langsung di-push utk last-known per (sym, kind) → ngeliminasi flicker reconnect.</span></p>
+    <p style="margin-top:16px"><b>/ws/replay/{session_id}</b><br><span class="dim">Control plane: pause / resume / seek / speed (1×, N×, 0× unpaced). Driver: cmd/replay binary swap-in.</span></p>
+    <p style="margin-top:16px"><b>Read limits</b><br><span class="dim">live: 4 KiB · replay: 1 KiB · global body cap: 1 MiB</span></p>
+  </div>
+</div>
+<p style="margin-top:18px"><span class="dim">Contract source-of-truth:</span> <b>backend/docs/openapi.yaml</b> <span class="dim">— OpenAPI 3.1, ready for FE codegen.</span></p>
+</section>
+
+<section class="slide" data-title="10 · auth">
+<h1>Auth Model</h1>
+<h2>Pivot: dari JWT/account → opaque API key</h2>
+<div class="grid2">
+  <div>
+    <p>FlowGreeks <span class="hi">bukan</span> stand-alone product. Akses cuma di-grant ke alumni bootcamp <b>flowjob.id</b> via API key yg di-mint parent site.</p>
+    <p style="margin-top:18px">Yang dihapus dari backend ini (~1500 LOC):</p>
+    <ul>
+      <li><span class="dim">signup / login / password</span></li>
+      <li><span class="dim">JWT issuer + refresh rotation</span></li>
+      <li><span class="dim">account lockout</span></li>
+      <li><span class="dim">tier gating</span></li>
+    </ul>
+    <p style="margin-top:18px"><span class="dim">Semua itu dipindah ke flowjob.id. Binary FlowGreeks cuma authenticate inbound traffic vs hashed key di table api_keys (shared Postgres).</span></p>
+  </div>
+  <div class="card">
+    <h3>5-layer defense-in-depth</h3>
+    <ol style="padding-left:22px">
+      <li><b>API-key middleware</b><br><span class="dim">Bearer / X-API-Key, hash compare</span></li>
+      <li><b>Per-key rate limit</b><br><span class="dim">rate_limit_rps + rate_burst dibaca langsung dari row api_keys → flowjob.id bisa hot-swap tier tanpa redeploy</span></li>
+      <li><b>HTTP body cap + WS read limits</b></li>
+      <li><b>Security response headers</b><br><span class="dim">nosniff · DENY-frame · CSP default-src 'none' · CORP same-origin · HSTS gated TLS</span></li>
+      <li><b>Audit log + Prometheus metrics + alert rules</b></li>
+    </ol>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="11 · benchmarks">
+<h1>Benchmarks</h1>
+<h2>Hot path = zero alloc steady state</h2>
+<div style="flex:1; display:flex; align-items:center">
+<table style="font-size:14px">
+  <tr><th>Function</th><th>Latency</th><th>Alloc</th><th>Catatan</th></tr>
+  <tr><td>Black-Scholes Price</td><td><span class="ok">105 ns/op</span></td><td>0 B/op</td><td>Closed-form, no math.Erf shortcut</td></tr>
+  <tr><td>Greeks All (delta,γ,θ,ν,ρ,charm,vanna)</td><td><span class="ok">259 ns/op</span></td><td>0 B/op</td><td>Analytical, share N(d1)/N(d2)</td></tr>
+  <tr><td>IV Solver (Brent)</td><td><span class="ok">1.03 µs/op</span></td><td>0 B/op</td><td>Auto-widen on same-sign endpoint</td></tr>
+  <tr><td>GEX Aggregate (200 strikes)</td><td><span class="ok">5.2 µs/op</span></td><td>0 B/op</td><td>Pre-alloc per-symbol slices</td></tr>
+  <tr><td>Lee-Ready classifier</td><td><span class="ok">71 ns/op</span></td><td>0 B/op</td><td>Cached NBBO per (strike,side)</td></tr>
+  <tr><td>Position Apply (per trade)</td><td><span class="ok">49 ns/op</span></td><td>0 B/op</td><td>Map lookup + atomic add</td></tr>
+  <tr><td>Basis Update (per future tick)</td><td><span class="ok">156 ns/op</span></td><td>0 B/op</td><td>EWMA single-pass</td></tr>
+</table>
+</div>
+<p><span class="dim">Semua jalan green di go test -race ./... · semua paket: alerts, api, auth, backtest, bus, dealer (incl. e2e), e2e, feed, feed/databento, feed/synthetic, greeks, narrative, replay, store.</span></p>
+</section>
+
+<section class="slide" data-title="12 · observability">
+<h1>Observability</h1>
+<h2>Prometheus + Grafana + slog + tracing</h2>
+<div class="grid3">
+  <div class="card">
+    <h3>Metrics (bounded cardinality)</h3>
+    <ul style="font-size:13px">
+      <li>flowgreeks_http_requests_total (per chi route)</li>
+      <li>flowgreeks_ingest_publish_*_total</li>
+      <li>flowgreeks_state_rows_{written,dropped}</li>
+      <li>flowgreeks_ws_subscribers (gauge)</li>
+      <li>flowgreeks_compute_iv_failures_total</li>
+      <li>flowgreeks_alerts_fired_total {kind}</li>
+      <li><span class="dim">… 30+ metrics total</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Grafana dashboard</h3>
+    <p style="font-size:13px"><b>flowgreeks-pipeline.json</b> — 10 panel covering ingest throughput, compute lag, archive backpressure, WS broker health, IV solver success rate, replay sessions.</p>
+    <p style="font-size:13px; margin-top:12px"><b>9 alert rules</b> — pipeline liveness, backpressure, http 5xx burst, quote-quality regression, auth burst (legacy, masih berdiri buat post-pivot apikey).</p>
+  </div>
+  <div class="card">
+    <h3>Logs &amp; tracing</h3>
+    <p style="font-size:13px"><b>slog structured</b> — req_id + trace_id di setiap line.</p>
+    <p style="font-size:13px; margin-top:12px"><b>Distributed trace</b> — X-Trace-ID propagate via HTTP + NATS, correlate cross-binary.</p>
+    <p style="font-size:13px; margin-top:12px"><b>Audit log</b> — alerts CRUD + apikey events ke slog backend.</p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="13 · time machine">
+<h1>Time Machine</h1>
+<h2>Replay + Backtest engine</h2>
+<div class="grid2">
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Replay (cmd/replay)</h3>
+    <p>Swap-in pengganti cmd/ingest. Baca historical dari Postgres, paced ulang, publish ke NATS subject yang sama. Downstream (compute, api, FE) <span class="hi">nggak tau bedanya</span>.</p>
+    <ul>
+      <li>Pacing: 1× realtime · N× fast-forward · 0× unpaced (CPU-bound)</li>
+      <li>Control plane: /ws/replay/{session_id}</li>
+      <li>Pause / resume / seek / speed dari FE</li>
+    </ul>
+  </div>
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--hi); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Backtest (POST /api/backtest/run)</h3>
+    <p>Predicate-driven strategy validation langsung di atas archive dealer_state_1s.</p>
+    <pre>
+input:  alerts.Rule (Kind+Threshold+StringArg)
+        + window [from, to]
+        + symbol
+
+engine: walk dealer_state_1s rows
+        evaluate predicate per row
+        synthesize trade entries/exits
+        compute P&amp;L curve
+
+output: Sharpe · Sortino · maxDD
+        · trade list · equity curve
+        deadline: 30s</pre>
+    <p style="font-size:13px"><span class="dim">Re-use yang sama predicate dari alerts engine — saved alert langsung backtest-able tanpa redefinition.</span></p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="14 · what's broken">
+<h1>Apa yang Belum / Masih Kurang</h1>
+<h2>Honest gap accounting</h2>
+<div class="grid2">
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--bad); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Hard blocker</h3>
+    <p><span class="dot bad"></span><b>Databento OPRA account locked</b><br><span class="dim">Vendor-side, manual recovery. Tanpa unlock, gabisa:</span></p>
+    <ul style="font-size:13px">
+      <li>Live verify SPX/NDX strike matrix populated end-to-end</li>
+      <li>Calibrasi DPI/Charm/Pin priors vs realised flow</li>
+      <li>Backtest signal validation pakai data real</li>
+      <li>Backfill execute path</li>
+    </ul>
+    <p style="margin-top:14px; font-size:13px"><span class="dim">GLBX (futures) sudah verified end-to-end. Kode OPRA bootstrap fix sudah ditulis per Python reference, tinggal nunggu unlock buat live verification.</span></p>
+  </div>
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--warn); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Soft gap (offline-fixable)</h3>
+    <ul style="font-size:13px">
+      <li><span class="dot warn"></span><b>Cross-validate Greeks vs py_vollib</b> — golden tests, match within 1e-6</li>
+      <li><span class="dot warn"></span><b>Property-based tests</b> — gamma symmetry, charm sign, theta&lt;0, vega&gt;0, IV convergence</li>
+      <li><span class="dot warn"></span><b>Synthetic scenario assertions</b> — "spot drop 1% in short-gamma → DPI rise"</li>
+      <li><span class="dot warn"></span><b>Competitor methodology cross-check doc</b> — SpotGamma · GEXBot · Squeeze Metrics</li>
+      <li><span class="dot warn"></span><b>External pentest</b> — recommended pre-public-launch</li>
+      <li><span class="dot warn"></span><b>Race detector locally</b> — no gcc on Windows; CI udah cover -race tiap PR</li>
+    </ul>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="15 · frontend gap">
+<h1>Frontend Gap</h1>
+<h2>web/ — ~35% complete</h2>
+<div class="grid2">
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--ok); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Done</h3>
+    <ul style="font-size:13px">
+      <li><span class="dot ok"></span>Next 14 + Tailwind + Radix + Recharts + framer-motion bootstrap</li>
+      <li><span class="dot ok"></span>Landing 9 sections (Hero, Modules, Pipeline, Pricing, dst.)</li>
+      <li><span class="dot ok"></span>Dashboard layout + 3 horizontal-slider scenes (Pulse / Levels / Tape)</li>
+      <li><span class="dot ok"></span>11 dashboard components rendering mock data shaped after openapi.yaml</li>
+    </ul>
+  </div>
+  <div>
+    <h3 style="margin:0 0 14px; color:var(--bad); font-size:13px; text-transform:uppercase; letter-spacing:1.5px">Pending</h3>
+    <ul style="font-size:13px">
+      <li><span class="dot bad"></span>Types codegen dari openapi.yaml</li>
+      <li><span class="dot bad"></span>Typed fetcher + zustand stores + TanStack Query</li>
+      <li><span class="dot bad"></span>WebSocket client + reconnect + heartbeat</li>
+      <li><span class="dot bad"></span>13 deep-dive route (alerts, webhooks, simulator, replay, backtest, dpi, charm-clock, dst.)</li>
+      <li><span class="dot bad"></span>Connect ke backend real (semua masih mock)</li>
+      <li><span class="dot bad"></span>Auth flow consume flowjob.id API key</li>
+      <li><span class="dot bad"></span>Error boundaries, skeleton, empty state</li>
+      <li><span class="dot bad"></span>Vitest + Playwright E2E</li>
+      <li><span class="dot bad"></span>Vercel deploy</li>
+    </ul>
+    <p style="margin-top:12px; font-size:12px" class="warn">⚠ User feedback: "landing page suka, dashboard HELL NAH" — perlu redesign pass sebelum dilanjut.</p>
+  </div>
+</div>
+</section>
+
+<section class="slide" data-title="16 · risks">
+<h1>Risk Register</h1>
+<h2>Hal yg bisa gagal di production</h2>
+<table>
+  <tr><th>Risk</th><th>Kategori</th><th>Mitigasi</th><th>Status</th></tr>
+  <tr><td>Databento OPRA tidak unlock-balik</td><td>Vendor</td><td>Eskalasi support · cari secondary feed (CBOE direct?)</td><td><span class="bad">open</span></td></tr>
+  <tr><td>DPI normalisasi salah skala (5 magic constants)</td><td>Math</td><td>Replace dgn rolling p90/p95 dari archive saat OPRA balik</td><td><span class="warn">deferred</span></td></tr>
+  <tr><td>WS scale di 1000+ concurrent client</td><td>Perf</td><td>Nightly ws_stress 100→500→1000 sudah jalan tiap 03:00 UTC</td><td><span class="ok">monitored</span></td></tr>
+  <tr><td>API key leak via logs</td><td>Security</td><td>Hash-only di DB · audit log jangan log raw key · CI grep guard</td><td><span class="ok">covered</span></td></tr>
+  <tr><td>flowjob.id integration belum ada</td><td>Integration</td><td>Spec + TS reference impl utk Generate/HashSecret</td><td><span class="warn">pending</span></td></tr>
+  <tr><td>0DTE chain bisa ribuan strike (deep OTM)</td><td>Math</td><td>IV solver auto-widen sudah landed (afb7831)</td><td><span class="ok">fixed</span></td></tr>
+  <tr><td>Backend benar tapi UX dashboard "HELL NAH"</td><td>Product</td><td>Redesign pass sebelum integrate — focal-point first, density turun</td><td><span class="warn">scoped</span></td></tr>
+  <tr><td>Single-host SPOF (no horizontal split)</td><td>Ops</td><td>Process-level uda by design · horizontal defer until traffic ada</td><td><span class="ok">accepted</span></td></tr>
+</table>
+</section>
+
+<section class="slide" data-title="17 · roadmap">
+<h1>Apa yang Dikerjain Berikutnya</h1>
+<h2>4 jalur kerja paralel · semua bisa start sekarang</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>A · Frontend track <span class="pill warn">most useful</span></h3>
+    <p style="font-size:13px">Run web/ dev server, screenshot dashboard, write UX critique. Pulse scene redesign dulu (paling sering dilihat). Color discipline enforce: monochrome default, accent earned doang.</p>
+    <p style="font-size:12px; color:var(--dim)">~hari skala minggu</p>
+  </div>
+  <div class="card">
+    <h3>B · Math validation framework</h3>
+    <p style="font-size:13px">Property tests + py_vollib cross-check + synthetic scenario assertions. Solid offline foundation buat defensible numbers — nutup gap research-feels-weak.</p>
+    <p style="font-size:12px; color:var(--dim)">~2-3 hari fokus</p>
+  </div>
+  <div class="card">
+    <h3>C · flowjob.id integration spec</h3>
+    <p style="font-size:13px">docs/integration/flowjob-api-keys.md — full spec + TypeScript reference impl utk Generate/HashSecret/INSERT pattern. Unblock kawan yg ngerjain Node.js side.</p>
+    <p style="font-size:12px; color:var(--dim)">~1 hari kerja</p>
+  </div>
+  <div class="card">
+    <h3>D · Competitor methodology doc</h3>
+    <p style="font-size:13px">Teardown SpotGamma + GEXBot + Squeeze Metrics methodology vs FlowGreeks, identify defensible differentiator dgn citation. Address "research feels weak" head-on.</p>
+    <p style="font-size:12px; color:var(--dim)">~1-2 hari research</p>
+  </div>
+</div>
+<p style="margin-top:24px"><span class="dim">Saat OPRA unlock:</span> backfill historical · populate dealer_state_1s · run backtest validation · calibrate DPI/Charm/Pin priors vs ground truth.</p>
+</section>
+
+<section class="slide" data-title="18 · summary">
+<h1>Ringkasan</h1>
+<h2>Where we stand · 2026-05-28</h2>
+<div class="row">
+  <div><div class="num ok">100%</div><div class="lbl">M0–M9 backend</div></div>
+  <div><div class="num">21/30</div><div class="lbl">deep-review fixes landed</div></div>
+  <div><div class="num">5</div><div class="lbl">defense-in-depth layer</div></div>
+  <div><div class="num warn">~35%</div><div class="lbl">frontend complete</div></div>
+  <div><div class="num bad">1</div><div class="lbl">hard blocker (OPRA)</div></div>
+</div>
+<p style="margin-top:32px; font-size:16px; max-width:920px; line-height:1.7">Backend <span class="hi">production-grade secara struktur</span>: math-nya zero-alloc, observability lengkap, auth model bersih (post-pivot ke API key), CI ada lint + race + security + nightly stress. Belum <span class="hi">production-proven</span> karena live verification + calibration ke-block di vendor.</p>
+<p style="margin-top:18px; font-size:16px; max-width:920px; line-height:1.7">Yang bisa dikerjain <span class="hi">sekarang tanpa OPRA</span>: math validation offline, frontend redesign + integrasi, flowjob.id integration spec, competitor methodology doc.</p>
+<p style="margin-top:36px; font-size:13px" class="dim">END · tekan ← untuk balik · F untuk fullscreen · G untuk goto slide</p>
+</section>
+
+</div>
+<div id="hud">
+  <span id="counter">01 / 01</span>
+  <span id="title-strip"></span>
+</div>
+<div id="help"><kbd>&larr;</kbd><kbd>&rarr;</kbd> nav &nbsp; <kbd>F</kbd> fullscreen &nbsp; <kbd>G</kbd> goto</div>
+<script>
+  const stage = document.getElementById('stage');
+  const slides = () => [...stage.querySelectorAll('.slide')];
+  let i = 0;
+  function show(n){
+    const arr = slides();
+    if(!arr.length) return;
+    n = Math.max(0, Math.min(arr.length-1, n));
+    arr.forEach((s,k)=> s.classList.toggle('active', k===n));
+    i = n;
+    document.getElementById('counter').textContent =
+      String(n+1).padStart(2,'0') + ' / ' + String(arr.length).padStart(2,'0');
+    document.getElementById('progress').style.width = ((n+1)/arr.length*100)+'%';
+    const t = arr[n].dataset.title || '';
+    document.getElementById('title-strip').textContent = t;
+  }
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown') { show(i+1); e.preventDefault(); }
+    else if(e.key==='ArrowLeft'||e.key==='PageUp') { show(i-1); e.preventDefault(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides().length-1);
+    else if(e.key==='f'||e.key==='F') {
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+    else if(e.key==='g'||e.key==='G'){
+      const n = parseInt(prompt('Goto slide #'),10);
+      if(!isNaN(n)) show(n-1);
+    }
+  });
+  document.addEventListener('click', e=>{
+    if(e.target.closest('kbd, a, button')) return;
+    const w = window.innerWidth;
+    if(e.clientX < w*0.35) show(i-1);
+    else show(i+1);
+  });
+  window.addEventListener('load', ()=> show(0));
+</script>
+</body>
+</html>

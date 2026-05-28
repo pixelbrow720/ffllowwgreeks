@@ -38,7 +38,7 @@ Backend is **production-grade** — M0–M9 complete + post-M9 hardening tracks 
 See [backend/docs/PROGRESS.md](backend/docs/PROGRESS.md) for the full log. Highlights:
 
 - Math core: BS pricing, IV solver Brent, analytical Greeks, Lee-Ready classifier, GEX aggregator, basis tracker, DPI 5-component, Charm Clock zones, Flow Pulse 3-line, Pin engine, What-If simulator, narrative engine
-- 7-layer defense-in-depth (API key auth, rate limit, body cap, security headers, audit log, metrics, alert rules)
+- 5-layer defense-in-depth (API-key middleware, per-key rate limit, body/WS read caps, security response headers, audit log + metrics + alert rules)
 - Benchmarks zero-alloc on hot path: BS 105ns, Greeks 259ns, IV 1µs, GEX 5.2µs/200-strike
 - CI: test + lint + security (staticcheck, govulncheck) + nightly ws_stress 1000c/60s
 

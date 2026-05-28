@@ -1,0 +1,19 @@
+# FlowGreeks validation harness — pinned deps
+# Offline only. Not used by the Go binary.
+#
+# NOTE: py_vollib_vectorized was originally planned but its dependency
+# py_lets_be_rational imports the private _testcapi module which was
+# removed in Python 3.14. We use a self-contained scipy/numpy BS
+# reference (bs_reference.py) instead — fewer deps, full control.
+
+databento>=0.45.0
+numpy>=1.26
+pandas>=2.1
+matplotlib>=3.8
+zstandard>=0.22
+scipy>=1.11
+
+# Property-based testing harness for math invariants
+# (see property_tests/ — Hull §13/§15 Black-Scholes invariants)
+hypothesis>=6.100
+pytest>=8.0

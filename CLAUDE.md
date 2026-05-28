@@ -15,6 +15,37 @@ This is a **single consolidated repository** holding three layers:
 
 Predecessor Python backend is archived at [archive/python-legacy/](archive/python-legacy/) — **not in active use**, kept for reference only.
 
+## Entry-point reading order (fresh session)
+
+1. This file (workspace rules).
+2. [HANDOFF.md](HANDOFF.md) — what was done last session, what's next, blockers.
+3. `cd backend` → [backend/CLAUDE.md](backend/CLAUDE.md) + [backend/HANDOFF.md](backend/HANDOFF.md) for Go work.
+4. `cd web` → [web/README.md](web/README.md) for frontend work.
+5. `git log --oneline -5` to confirm workspace state.
+
+## Big-picture architecture
+
+Backend pipeline (Go binaries connected by NATS JetStream):
+
+```
+OPRA / GLBX  →  cmd/ingest  →  NATS  →  cmd/compute  →  Postgres + Redis
+                                                              ↓
+                                                          cmd/api  →  REST + /ws/live  →  web/
+```
+
+`cmd/replay` swaps in for `cmd/ingest` to drive historical sessions; everything downstream is unchanged. Hot-path packages live in [backend/internal/](backend/internal/):
+
+- `feed/` — OPRA Pillar + GLBX MDP3 protocol parsers (Databento dbn-go)
+- `greeks/` — Black-Scholes, IV solver (Brent), analytic Greeks
+- `dealer/` — GEX, DPI 5-component, Charm Clock, Pin engine, forced-flow simulator
+- `bus/` — NATS publish/subscribe wrappers
+- `store/` — TimescaleDB hypertables (ticks, dealer_state_1s) + Redis sliding-window cache
+- `api/` — chi router, REST endpoints, /ws/live broker, /ws/replay manager
+- `apikey/` — opaque-key auth (rows minted by flowjob.id, shared Postgres)
+- `alerts/` `backtest/` `replay/` `narrative/` `e2e/` `trace/` `logger/` `config/`
+
+Frontend ([web/](web/)) reads REST + WS directly; [backend/docs/openapi.yaml](backend/docs/openapi.yaml) is the contract source-of-truth for TypeScript types.
+
 ## Project relationships
 
 - `backend/` is feature-complete through M9 + post-M9 hardening. Hard-blocked on Databento OPRA unlock for live verification. Demo profile (`make demo-up`) runs api + synthetic state publisher so frontend work can proceed without Databento.
@@ -29,6 +60,15 @@ Predecessor Python backend is archived at [archive/python-legacy/](archive/pytho
 make check                       # fmt + vet + lint + test
 make demo-up                     # full demo stack
 make build                       # → bin/api bin/ingest bin/compute bin/replay
+```
+
+Single-test / focused commands (run from `backend/`):
+
+```bash
+go test ./internal/greeks/...                          # one package
+go test -run TestBlackScholes ./internal/greeks/...    # one test by name
+go test -bench=. -benchmem -run=^$ ./internal/greeks/  # zero-alloc gate
+go test -race -timeout 60s ./...                       # race detector across all
 ```
 
 After meaningful backend work, update [backend/docs/PROGRESS.md](backend/docs/PROGRESS.md).

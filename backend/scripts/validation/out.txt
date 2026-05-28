@@ -1,0 +1,12 @@
+Loading definition: definition__SPX-OPT_SPXW-OPT.dbn.zst
+  26,584 instruments
+Loading tcbbo (snapshot <= 2026-02-02T16:00:00+00:00): tcbbo__SPX-OPT_SPXW-OPT.dbn.zst
+  6,528 active strikes at snapshot
+  estimated spot (from tightest 20 spreads' median strike): 6812.50
+Solving IV via scipy brentq (S=6812.50, r=0.045, q=0.013)
+  6,167 IVs solved
+  valid IV: 5,449 / 6,167  (88.4%)
+  IV range: 0.008 – 9.533
+  IV median: 0.191
+  → backend\scripts\validation\outputs\2026-02-02\iv_ref_SPX_160000Z.csv
+  → backend\scripts\validation\outputs\2026-02-02\iv_ref_SPX_160000Z.png

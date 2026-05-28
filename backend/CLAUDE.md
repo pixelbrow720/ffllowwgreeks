@@ -21,7 +21,7 @@ FlowGreeks is one of three products that merge into [**flowjob.id**](https://flo
 
 ## Project status
 
-Backend complete (M0–M9 + post-M9 hardening + observability + production-readiness + deep review + auth pivot to API keys). Frontend mockups in [../flowgreeks-mockup/mockup2/](../flowgreeks-mockup/mockup2/) — reference UI only, not the production frontend yet.
+Backend complete (M0–M9 + post-M9 hardening + observability + production-readiness + deep review + auth pivot to API keys). Production frontend lives at [../web/](../web/) (Next.js 14, ~35% complete — landing + dashboard skeleton on mock data). Static visual references in [../design-reference/mockup3/](../design-reference/mockup3/).
 
 Hard-blocked on Databento OPRA unlock for live verification + DPI/Charm/Pin calibration.
 
@@ -37,7 +37,7 @@ Hard-blocked on Databento OPRA unlock for live verification + DPI/Charm/Pin cali
 - **Backend language:** Go 1.22+ (rationale in [docs/STACK.md](docs/STACK.md))
 - **Tick archive:** TimescaleDB (Postgres extension) — hypertables on tick + minute-bar tables
 - **Live state cache:** Redis 7+ — sliding window state for DPI / charm / walls
-- **Frontend (later):** SvelteKit or Next.js (tbd in M5)
+- **Frontend:** Next.js 14 (App Router) — lives in `../web/`
 - **Message bus (internal):** NATS JetStream for fanout between ingest → compute → distribute
 - **Observability:** Prometheus + Grafana (self-hosted)
 - **Auth:** opaque API keys provisioned by flowjob.id — see `internal/apikey/`

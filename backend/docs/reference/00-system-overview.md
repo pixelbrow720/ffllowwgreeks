@@ -106,16 +106,17 @@ FLOW   (file storage, 7d retention)     narrative.<sym>
 ┌────────────────────────────────────────────────────────────┐
 │ TimescaleDB (Postgres + hypertables)                       │
 │                                                            │
-│  ticks               (hypertable, 1d chunks, 14mo retain)  │
-│  dealer_state_1s     (hypertable, 1d chunks, 14mo retain)  │
-│                       7d compression                       │
-│  users               (regular table)                       │
-│  refresh_tokens      (regular table, family_id indexed)    │
+│  ticks               (hypertable, 6h chunks, 14mo retain,  │
+│                       compressed after 2d)                 │
+│  dealer_state_1s     (hypertable, 1d chunks, 14mo retain,  │
+│                       compressed after 7d)                 │
+│  api_keys            (regular table, partial idx on        │
+│                       key_hash WHERE revoked_at IS NULL)   │
 │  schema_version      (migration tracking)                  │
 └────────────────────────────────────────────────────────────┘
 ```
 
-Migrations live in [`scripts/migrations/`](../../scripts/migrations/) — `0001_init` through `0007_account_lockout`.
+Migrations live in [`scripts/migrations/`](../../scripts/migrations/) — `0001_init` through `0008_api_keys`. The auth pivot dropped the `users` + `refresh_tokens` tables created by 0003/0005/0006/0007; those migrations stay in the directory as forward history but their schema is gone.
 
 ## Hot-path latency budget
 
@@ -156,10 +157,10 @@ For first-time readers, follow this order:
 1. [`01-data-pipeline.md`](01-data-pipeline.md) — how a tick gets from Databento to a websocket client
 2. [`03-math-pipeline.md`](03-math-pipeline.md) — Black-Scholes → IV → Greeks
 3. [`04-dealer-model.md`](04-dealer-model.md) — DPI, Charm Clock, GEX, Pin, Simulator
-4. [`02-auth.md`](02-auth.md) — signup/login/refresh/lockout flows
+4. [`02-auth.md`](02-auth.md) — opaque API-key middleware, per-key rate limit, revocation
 5. [`05-time-machine.md`](05-time-machine.md) — replay + backtest
 6. [`06-alerts-engine.md`](06-alerts-engine.md) — rules → triggers → delivery
-7. [`07-defense-in-depth.md`](07-defense-in-depth.md) — 7-layer security model
+7. [`07-defense-in-depth.md`](07-defense-in-depth.md) — 5-layer security model
 8. [`08-deployment-ops.md`](08-deployment-ops.md) — compose, k8s, shutdown
 9. [`09-observability.md`](09-observability.md) — traces, audit log, metrics, alerts
 

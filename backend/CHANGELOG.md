@@ -205,7 +205,7 @@ Finishing the production-proven posture — every remaining "could a hostile cli
 
 ### Known gaps (deferred — pending Databento unlock or post-launch)
 
-- **Frontend (M5)** — separate shadcn track owned by user (`flowgreeks-mockup/mockup2/`)
+- **Frontend (M5)** — separate Next.js track owned by user, lives at `../web/`
 - **Stripe billing (M6)**
 - **CSRF token** — REST is bearer-token only today, so impact is low. Required iff frontend ever switches to cookie sessions.
 - **Backfill execute path** — skeleton only; needs Databento unlock to wire `dbn_hist.GetRange`

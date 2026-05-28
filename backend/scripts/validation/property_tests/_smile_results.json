@@ -1,0 +1,186 @@
+{
+  "n_snapshots": 14,
+  "n_scored": 13,
+  "n_pass": 12,
+  "n_fail": 1,
+  "n_skipped": 1,
+  "pass_rate": 0.9230769230769231,
+  "n_put_skew": 5,
+  "n_call_skew": 8,
+  "per_snapshot": [
+    {
+      "snapshot": "iv_ref_NDX_144500Z",
+      "status": "skipped",
+      "reason": "thin buckets {'deep_otm_put': 3, 'atm': 32, 'deep_otm_call': 1}"
+    },
+    {
+      "snapshot": "iv_ref_NDX_160000Z",
+      "status": "pass",
+      "skew": "put",
+      "iv_otm_put": 0.8778375859928877,
+      "iv_atm": 0.2945552815988552,
+      "iv_otm_call": 0.6972300767475808,
+      "sizes": {
+        "deep_otm_put": 6,
+        "atm": 19,
+        "deep_otm_call": 12
+      }
+    },
+    {
+      "snapshot": "iv_ref_NDX_173000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.8906748099044173,
+      "iv_atm": 0.19624988957486084,
+      "iv_otm_call": 0.9391082566010762,
+      "sizes": {
+        "deep_otm_put": 5,
+        "atm": 10,
+        "deep_otm_call": 37
+      }
+    },
+    {
+      "snapshot": "iv_ref_NDX_180000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.2179783784959043,
+      "iv_atm": 0.1333363243880202,
+      "iv_otm_call": 0.2313284541495402,
+      "sizes": {
+        "deep_otm_put": 23,
+        "atm": 33,
+        "deep_otm_call": 23
+      }
+    },
+    {
+      "snapshot": "iv_ref_NDX_183000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.2124182233812998,
+      "iv_atm": 0.13156300788605524,
+      "iv_otm_call": 0.2210373108760338,
+      "sizes": {
+        "deep_otm_put": 25,
+        "atm": 34,
+        "deep_otm_call": 22
+      }
+    },
+    {
+      "snapshot": "iv_ref_NDX_193000Z",
+      "status": "fail",
+      "skew": "put",
+      "iv_otm_put": 1.2444786906725107,
+      "iv_atm": 1.377315897383374,
+      "iv_otm_call": 0.790036867814027,
+      "sizes": {
+        "deep_otm_put": 7,
+        "atm": 47,
+        "deep_otm_call": 6
+      }
+    },
+    {
+      "snapshot": "iv_ref_NDX_200000Z",
+      "status": "pass",
+      "skew": "put",
+      "iv_otm_put": 1.2843675598774809,
+      "iv_atm": 0.3994328976852173,
+      "iv_otm_call": 0.8688667871030962,
+      "sizes": {
+        "deep_otm_put": 7,
+        "atm": 39,
+        "deep_otm_call": 9
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_144500Z",
+      "status": "pass",
+      "skew": "put",
+      "iv_otm_put": 0.2159231323825441,
+      "iv_atm": 0.1186563270745438,
+      "iv_otm_call": 0.14425706584052966,
+      "sizes": {
+        "deep_otm_put": 39,
+        "atm": 71,
+        "deep_otm_call": 36
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_160000Z",
+      "status": "pass",
+      "skew": "put",
+      "iv_otm_put": 0.2297698719688052,
+      "iv_atm": 0.106129850782383,
+      "iv_otm_call": 0.1464870123407348,
+      "sizes": {
+        "deep_otm_put": 94,
+        "atm": 114,
+        "deep_otm_call": 72
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_173000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.1921230830136445,
+      "iv_atm": 0.0761427677614502,
+      "iv_otm_call": 0.2447280442675267,
+      "sizes": {
+        "deep_otm_put": 66,
+        "atm": 85,
+        "deep_otm_call": 163
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_180000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.1844613780384887,
+      "iv_atm": 0.0635769303639068,
+      "iv_otm_call": 0.2807831749895144,
+      "sizes": {
+        "deep_otm_put": 59,
+        "atm": 70,
+        "deep_otm_call": 163
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_183000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.1963467520207281,
+      "iv_atm": 0.08149083072620114,
+      "iv_otm_call": 0.21706743782929336,
+      "sizes": {
+        "deep_otm_put": 81,
+        "atm": 98,
+        "deep_otm_call": 162
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_193000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.18056285893797194,
+      "iv_atm": 0.061557939085222196,
+      "iv_otm_call": 0.3287223595325361,
+      "sizes": {
+        "deep_otm_put": 56,
+        "atm": 64,
+        "deep_otm_call": 153
+      }
+    },
+    {
+      "snapshot": "iv_ref_SPX_200000Z",
+      "status": "pass",
+      "skew": "call",
+      "iv_otm_put": 0.18497571750647718,
+      "iv_atm": 0.06549013932735426,
+      "iv_otm_call": 0.2772701513281887,
+      "sizes": {
+        "deep_otm_put": 68,
+        "atm": 80,
+        "deep_otm_call": 170
+      }
+    }
+  ]
+}
