@@ -3,6 +3,33 @@
 > Read this before doing anything in a new Claude Code session.
 > Source-of-truth ranking: this file > [CLAUDE.md](CLAUDE.md) > [backend/HANDOFF.md](backend/HANDOFF.md) > [backend/docs/PROGRESS.md](backend/docs/PROGRESS.md) > git log.
 
+## Session 2026-05-28
+
+### Done (committed)
+- Wide-range Databento DBN pull script + 9-day historical archive (commit `fbd17aa`). Plan C executed for 78 trading days; got 9 full days + 1 partial before the account auto-locked (twice). Root cause: pull script designed as a 780-call loop instead of one wide call per schema. DBN archive lives under `backend/data/databento/`.
+- Math validation extension to 108 parity tests (9 days × 2 roots × 6 snapshots), 321,108 strikes covered, 100% PASS at p99 < 1e-4 vs scipy reference. 11/11 BS invariants under hypothesis n=200. 19 smile gallery PNGs. Docs: [backend/docs/methodology/parity-9day.md](backend/docs/methodology/parity-9day.md), [greeks-parity.md](backend/docs/methodology/greeks-parity.md), [property-tests.md](backend/docs/methodology/property-tests.md), [smile-gallery.md](backend/docs/methodology/smile-gallery.md).
+- Multi-agent integration audit landed (commit `a4d545d` types skeleton + later in session). Produced [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md) (15 items, 4 P0), [docs/integration/contract-drift.md](docs/integration/contract-drift.md), [docs/integration/websocket-contract.md](docs/integration/websocket-contract.md), [docs/integration/type-mapping.md](docs/integration/type-mapping.md), [docs/design/dashboard-redesign-proposal.md](docs/design/dashboard-redesign-proposal.md), [docs/methodology/research-paper.md](docs/methodology/research-paper.md) (1036 lines).
+- P0 integration fixes applied:
+  - **C1**: openapi `DELETE /api/alerts/rules/{id}` declared under apiKeyAuth (was undocumented public).
+  - **C2**: WS endpoints (`/ws/live`, `/ws/replay/{id}`) wired behind `apikey.Middleware`.
+  - **C4**: tailwind `accent.{short, long, warn}` tokens added in `web/tailwind.config.ts`, mapped to `--accent-short` / `--accent-long` / `--accent-warn` per CLAUDE.md color rule.
+- P1 security: per-IP token-bucket rate limit at the root, before auth, via `apikey.IPMiddleware` mounted in `backend/cmd/api/main.go`. Closes credential-stuffing window before the per-key bucket can fire.
+- Docs cleanup audit (commit `fbd17aa`): trimmed `docs/README.md`, `docs/ROADMAP.md`, `docs/PROGRESS.md`. Stripped `design-reference/` references from 7 files (folder doesn't exist in this consolidated workspace). 3 file deletions blocked by rm permission denial — listed in [docs/_cleanup-audit.md](docs/_cleanup-audit.md).
+
+### In flight (uncommitted)
+- Python bridge `backend/scripts/dbn_to_postgres.py` running in a background shell, loading 9-day DBN archive directly into the `ticks` table via the `databento` Python SDK. As of session end: day 2 of 9 in flight, ETA ~50 minutes remaining. Day 1 may be partial (a previous agent died mid-load) — needs verification once the bridge finishes.
+
+### Discovered / blocked
+- **Replayer smoke (`cmd/replay_dbn`)**: dbn-go v0.9.1 cannot decode the DBN v1 InstrumentDef format Databento served us. Pipeline blocked until either a v1 fallback decoder is added in the Go side, or the definition files are re-pulled with v3 (which itself depends on account unlock). Python bridge is the chosen workaround.
+- **Databento account locked twice** during the wide-range pull. Vendor support contact pending. Same hard blocker as before, now compounded.
+- **3 file deletions blocked by rm permission denial** — see [docs/_cleanup-audit.md](docs/_cleanup-audit.md) for the list.
+
+### Next session menu
+- A: Wait for the Python bridge to finish (~50 min), verify day 1 has full futures data, then smoke `cmd/replay` → `cmd/compute` → `dealer_state_1s` end-to-end. Unblocks the backtest API + replay UI surface. ~1–2h.
+- B: Frontend Sprint 1 (`web/`) — typed fetcher from openapi.yaml, WS client with reconnect, migrate 4–5 dashboard panels off mock data onto the real REST/WS surface. ~3–4h.
+- C: Mechanical token migration in `web/`: 98 occurrences of `signal-up` / `signal-down` / `signal-warn` → `accent-short` / `accent-long` / `accent-warn` per the new tailwind config. Pure search-and-replace. ~30 min.
+- D: Contact Databento support to unlock the account; without this, OPRA-dependent verification stays blocked indefinitely.
+
 ## Workspace just consolidated (2026-05-28)
 
 Previously the project was split across three locations causing cognitive tax:
@@ -102,17 +129,7 @@ Implementation pending. The TypeScript port of `apikey.Generate` + `HashSecret` 
 
 ## What to do next session
 
-User has not committed to a single direction yet. Likely options:
-
-**A.** Run `web/` dev server, screenshot dashboard, write UX critique + redesign proposal for the Pulse scene (the most-watched scene). ~1h work, immediate visual artifact.
-
-**B.** Set up math validation framework: property tests + py_vollib cross-check + synthetic scenario assertions. ~2h work, solid offline foundation, defensible numbers.
-
-**C.** Write `docs/integration/flowjob-api-keys.md` — full spec + TypeScript reference implementation for the Node.js/Next.js side. ~1h, unblocks kawan.
-
-**D.** Write `docs/methodology/competitor-crosscheck.md` — teardown SpotGamma + GEXBot + Squeeze Metrics methodology vs FlowGreeks, identify defensible differentiators with citations. ~1h, addresses user's "research feels weak" concern head-on.
-
-Ask the user which one — don't pick autonomously.
+See the "Next session menu" under **Session 2026-05-28** above. Top priority is verifying the Python bridge load and smoking the replay → compute → dealer_state_1s pipeline end-to-end so the backtest API and replay UI can be unblocked.
 
 ## Quick-start checklist for the next Claude
 
