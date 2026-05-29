@@ -99,11 +99,17 @@ func (s *DPIScorer) Score(
 ) DPIBreakdown {
 	spot := deriveSpotFromRows(rows)
 
+	s.mu.Lock()
+	sessionStart := s.cfg.SessionStart
+	sessionEnd := s.cfg.SessionEnd
+	alpha := s.cfg.EWMAAlpha
+	s.mu.Unlock()
+
 	raw := DPIBreakdown{
 		NetGammaSign:      ngsPressure(view.NetGEX, s.cfg.GEXNorm),
 		CharmVelocity:     charmVelocity(rows, spot, s.cfg.CharmFlowRateNorm),
 		VannaSensitivity:  vannaSensitivity(rows, spot, s.cfg.VannaPressureNorm),
-		TimeToCloseDecay:  ttcDecay(now, s.cfg.SessionStart, s.cfg.SessionEnd),
+		TimeToCloseDecay:  ttcDecay(now, sessionStart, sessionEnd),
 		FlowConcentration: flowConcentration(signedFlow5min),
 	}
 
@@ -117,7 +123,7 @@ func (s *DPIScorer) Score(
 		st.prev = raw
 		st.inited = true
 	} else {
-		a := s.cfg.EWMAAlpha
+		a := alpha
 		st.prev = DPIBreakdown{
 			NetGammaSign:      a*raw.NetGammaSign + (1-a)*st.prev.NetGammaSign,
 			CharmVelocity:     a*raw.CharmVelocity + (1-a)*st.prev.CharmVelocity,
@@ -137,6 +143,37 @@ func (s *DPIScorer) Reset(symbol feed.Symbol) {
 	s.mu.Lock()
 	delete(s.states, symbol)
 	s.mu.Unlock()
+}
+
+// SetSessionBounds updates the session window used by the TTC component.
+// Idempotent and safe to call every aggregator iteration; replay drives
+// these from event time so the window tracks the historical day instead
+// of "today" baked in at construction.
+func (s *DPIScorer) SetSessionBounds(start, end time.Time) {
+	s.mu.Lock()
+	s.cfg.SessionStart = start
+	s.cfg.SessionEnd = end
+	s.mu.Unlock()
+}
+
+// SetThresholds replaces the three component normalizers with values
+// fitted offline by cmd/calibrate. Each value is applied only when
+// strictly positive — a malformed calibration JSON cannot silently
+// zero out a production normalizer (which would either explode the
+// component to ±1 saturation or NaN it). Existing EWMA state is
+// preserved so a SIGHUP reload doesn't reset the smoothing.
+func (s *DPIScorer) SetThresholds(gexNorm, charmFlowRateNorm, vannaPressureNorm float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if gexNorm > 0 {
+		s.cfg.GEXNorm = gexNorm
+	}
+	if charmFlowRateNorm > 0 {
+		s.cfg.CharmFlowRateNorm = charmFlowRateNorm
+	}
+	if vannaPressureNorm > 0 {
+		s.cfg.VannaPressureNorm = vannaPressureNorm
+	}
 }
 
 // ─── components ───────────────────────────────────────────────────────

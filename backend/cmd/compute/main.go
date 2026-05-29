@@ -18,10 +18,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"flag"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -42,6 +45,16 @@ const (
 	serviceName    = "compute"
 	metricsAddr    = ":9092"
 	aggregatorTick = 1 * time.Second
+
+	// stateMaxStrikes caps how many strikes we ship in `state.<sym>.gex`.
+	// Real SPX/NDX 0DTE chains run ~2,000 active strikes by mid-session
+	// and the per-second JSON snapshot exceeds NATS' 1 MiB max payload
+	// once strike count passes ~600 — silently drops the WS broadcast.
+	// 64 strikes by |dealer_pos| keeps the payload < 32 KiB and still
+	// covers every meaningful concentration on a typical session (the
+	// dashboard chain panel never plots more than ~50 anyway). Adjust
+	// in M5 if a downstream panel actually needs the long tail.
+	stateMaxStrikes = 64
 
 	// Risk / yield placeholders. Refresh daily from a config service in M4+.
 	defaultRate  = 0.045
@@ -74,6 +87,13 @@ type Pipeline struct {
 	// per-strike Greeks (rebuilt on each aggregate tick)
 	// last spot estimate (from futures basis when available)
 	spot float64
+
+	// lastEventNs is the high-water mark of TsEvent across every tick the
+	// pipeline has consumed. Drives the "virtual now" for replay so TTE,
+	// TTC, charm-clock zone selection, and persisted state ts all track
+	// historical event time instead of wall-clock. Atomic so the
+	// aggregator goroutine can read without holding any pipeline mutex.
+	lastEventNs atomic.Uint64
 }
 
 type ivKey struct {
@@ -105,6 +125,11 @@ func newPipeline(sym feed.Symbol) *Pipeline {
 }
 
 func main() {
+	calibrationPath := flag.String("calibration-config", "",
+		"path to JSON file emitted by `cmd/calibrate` to override DPI / "+
+			"Charm Clock thresholds; empty = engine defaults")
+	flag.Parse()
+
 	cfg, err := config.Load()
 	if err != nil {
 		_, _ = os.Stderr.WriteString("config load failed: " + err.Error() + "\n")
@@ -154,6 +179,40 @@ func main() {
 		SessionEnd:   sessionEnd,
 	})
 	charmClock := dealer.NewCharmClockClassifier(sessionStart, sessionEnd)
+
+	// Apply offline calibration if requested. Failures are non-fatal —
+	// a missing or malformed file logs a warning and the engine falls
+	// back to the spec defaults so an operator typo can never silently
+	// zero out a production normalizer.
+	if path := *calibrationPath; path != "" {
+		cal, err := dealer.LoadCalibration(path)
+		if err != nil {
+			log.Warn("calibration load failed; using engine defaults",
+				"path", path, "err", err)
+		} else if pref, sym, ok := dealer.PreferredSymbol(cal); ok {
+			dpiScorer.SetThresholds(pref.GEXNorm, pref.CharmFlowRateNorm, pref.VannaPressureNorm)
+			if pref.CharmZoneBoundaries[0] > 0 && pref.CharmZoneBoundaries[1] > 0 {
+				charmClock.SetVelocityThresholds(
+					pref.CharmZoneBoundaries[0],
+					pref.CharmZoneBoundaries[1],
+				)
+			}
+			log.Info("calibration applied",
+				"path", path,
+				"basis_symbol", sym,
+				"sample_count", pref.SampleCount,
+				"fit_window", pref.FitWindow,
+				"gex_norm", pref.GEXNorm,
+				"charm_flow_rate_norm", pref.CharmFlowRateNorm,
+				"vanna_pressure_norm", pref.VannaPressureNorm,
+				"charm_weak_ceiling", pref.CharmZoneBoundaries[0],
+				"charm_peak_floor", pref.CharmZoneBoundaries[1],
+			)
+		} else {
+			log.Warn("calibration loaded but no usable symbol entry; using defaults",
+				"path", path)
+		}
+	}
 	narrators := map[feed.Symbol]*narrative.Engine{
 		feed.SymbolSPX: narrative.NewEngine(feed.SymbolSPX),
 		feed.SymbolNDX: narrative.NewEngine(feed.SymbolNDX),
@@ -180,7 +239,7 @@ func main() {
 	for _, sym := range []feed.Symbol{feed.SymbolSPX, feed.SymbolNDX} {
 		s := sym
 		subj := bus.SubjectTicks(s)
-		_, err := nc.Subscribe(subj, func(m *nats.Msg) {
+		sub, err := nc.Subscribe(subj, func(m *nats.Msg) {
 			t, err := bus.Decode(m.Data)
 			if err != nil {
 				log.Warn("decode tick", "err", err, "subj", m.Subject)
@@ -191,6 +250,14 @@ func main() {
 		if err != nil {
 			log.Error("nats subscribe", "subj", subj, "err", err)
 			os.Exit(1)
+		}
+		// Bump pending message + byte limits well past defaults (65k msgs
+		// / 64 MiB). Unpaced replay can publish ~3M ticks in seconds; the
+		// default slow-consumer ceiling drops most of them on the floor.
+		// 8M msgs × 1 GiB is comfortable for a 30-min SPX window and
+		// keeps the cmd/compute resident set bounded on a dev box.
+		if err := sub.SetPendingLimits(8_000_000, 1024*1024*1024); err != nil {
+			log.Warn("nats set pending limits", "subj", subj, "err", err)
 		}
 		log.Info("subscribed", "subject", subj)
 	}
@@ -241,9 +308,42 @@ func handleTick(p *Pipeline, basis *dealer.BasisTracker, t feed.Tick,
 		tickTypeLabel(t.IsFuture(), uint8(t.TickType)),
 	).Inc()
 
+	// Maintain the pipeline's "virtual now" by tracking the high-water
+	// mark of TsEvent. Out-of-order ticks (rare under JetStream order
+	// guarantees but possible across symbols) are ignored. Drives TTE
+	// + TTC during replay where wall-clock is months ahead of event time.
+	if t.TsEvent > 0 {
+		for {
+			cur := p.lastEventNs.Load()
+			if t.TsEvent <= cur {
+				break
+			}
+			if p.lastEventNs.CompareAndSwap(cur, t.TsEvent) {
+				break
+			}
+		}
+	}
+
 	// Futures path: feed basis tracker only.
 	if t.IsFuture() {
 		basis.UpdateFuture(t)
+		// Eagerly seed pipeline spot from basis on the first futures
+		// tick so the option-quote handler downstream can solve IV
+		// against a realistic spot. Without this the per-second
+		// aggregator is the only thing that copies basis → p.spot,
+		// which leaves the IV solver running against the hard-coded
+		// fallback for the first ~600ms of a fast replay flood —
+		// long enough for thousands of options quotes to be discarded
+		// because the implied vol produced from (fallback spot, real
+		// mid) doesn't bracket.
+		if p.spot == 0 {
+			snap := basis.Snapshot(t.Symbol)
+			if snap.Spot > 0 {
+				p.spot = snap.Spot
+			} else if snap.FutFrontMid > 0 {
+				p.spot = snap.FutFrontMid - snap.BasisSmooth
+			}
+		}
 		return
 	}
 
@@ -385,6 +485,12 @@ func pipelineSpot(p *Pipeline) float64 {
 // runAggregator runs the per-symbol per-second aggregation loop. Pulls
 // position snapshots, computes Greeks per strike using cached IVs, runs
 // dealer.Aggregate, publishes state.
+//
+// All time-sensitive computations (TTE, TTC, charm-clock zone, persisted
+// row ts) are driven by per-pipeline event time (TsEvent high-water mark),
+// not wall clock. Live ingest sets event-time ≈ wall-clock so behaviour is
+// unchanged; replay sets event-time to the historical session being
+// replayed so the math is computed against the actual session-of-record.
 func runAggregator(ctx context.Context,
 	log interface {
 		Info(string, ...any)
@@ -409,22 +515,50 @@ func runAggregator(ctx context.Context,
 			iter++
 			aggregatorIterations.Inc()
 			passStart := time.Now()
-			now := time.Now().UTC()
 			for sym, p := range pipes {
+				// Per-pipeline event-time "now". When no tick has been
+				// observed yet (cold start) fall back to wall-clock so the
+				// aggregator does not stall before data arrives.
+				eventNs := p.lastEventNs.Load()
+				var eventNow time.Time
+				if eventNs > 0 {
+					eventNow = time.Unix(0, int64(eventNs)).UTC()
+				} else {
+					eventNow = time.Now().UTC()
+				}
+
+				// Session window for this iteration, anchored on event-time
+				// day. M4+ calendar service can refine for non-DST and
+				// half-days; for now an EDT 09:30→16:00 ET window in UTC
+				// is good enough.
+				const easternOffsetH = 4 // EDT; flip to 5 in winter
+				sStart := time.Date(eventNow.Year(), eventNow.Month(), eventNow.Day(),
+					9+easternOffsetH, 30, 0, 0, time.UTC)
+				sEnd := time.Date(eventNow.Year(), eventNow.Month(), eventNow.Day(),
+					16+easternOffsetH, 0, 0, 0, time.UTC)
+				dpiScorer.SetSessionBounds(sStart, sEnd)
+				charmClock.SetSessionBounds(sStart, sEnd)
+
 				snap := basis.Snapshot(sym)
 				if snap.Spot > 0 {
 					p.spot = snap.Spot
 				} else if snap.FutFrontMid > 0 && snap.BasisSmooth != 0 {
 					p.spot = snap.FutFrontMid - snap.BasisSmooth
+				} else if snap.FutFrontMid > 0 {
+					// First-iteration fallback: before the basis EWMA has
+					// initialised (needs spot to seed), use front-mid as a
+					// crude spot proxy so downstream math has a non-zero S
+					// from the very first aggregator pass during replay.
+					p.spot = snap.FutFrontMid
 				}
 				rows := p.positions.Snapshot(sym)
 				if len(rows) == 0 {
 					continue
 				}
-				fillGreeks(p, rows)
+				fillGreeks(p, rows, eventNs)
 				view := dealer.Aggregate(rows, p.spot)
 
-				flow5MinPurge(p, now.UnixNano())
+				flow5MinPurge(p, eventNow.UnixNano())
 
 				p.flowMu.Lock()
 				flowCopy := make(map[uint32]int64, len(p.flow5min))
@@ -437,20 +571,20 @@ func runAggregator(ctx context.Context,
 				}
 				p.flowMu.Unlock()
 
-				breakdown := dpiScorer.Score(sym, view, rows, flowCopy, now)
-				pulse := p.pulse.Snapshot(now)
+				breakdown := dpiScorer.Score(sym, view, rows, flowCopy, eventNow)
+				pulse := p.pulse.Snapshot(eventNow)
 
 				charmVel := aggregateCharmVelocity(rows, p.spot)
-				zone := charmClock.Classify(sym, charmVel, now)
+				zone := charmClock.Classify(sym, charmVel, eventNow)
 
-				pinResult := dealer.EvaluatePin(rows, p.spot, pinFlowCopy, now,
-					sessionStart, sessionEnd, dealer.DefaultPinConfig())
+				pinResult := dealer.EvaluatePin(rows, p.spot, pinFlowCopy, eventNow,
+					sStart, sEnd, dealer.DefaultPinConfig())
 
 				// Narrative: feed condensed snapshot, fan resulting events
 				// to NATS for the dashboard "Live Dealer Narrative" panel.
 				if eng := narrators[sym]; eng != nil {
 					evs := eng.Step(narrative.Snapshot{
-						TsNs:         uint64(now.UnixNano()),
+						TsNs:         uint64(eventNow.UnixNano()),
 						Spot:         p.spot,
 						NetGEX:       view.NetGEX,
 						ZeroGamma:    view.ZeroGamma,
@@ -472,11 +606,11 @@ func runAggregator(ctx context.Context,
 				p.ivMu.Unlock()
 
 				publishState(nc, log, sym, p.spot, snap, view, rows,
-					breakdown, pulse, zone, charmVel, pinResult, sessionStart, sessionEnd)
+					breakdown, pulse, zone, charmVel, pinResult, sStart, sEnd, eventNow)
 
 				if stateWriter != nil {
 					row := store.StateRow{
-						Ts:               now,
+						Ts:               eventNow,
 						Symbol:           sym,
 						Spot:             p.spot,
 						BasisSmooth:      snap.BasisSmooth,
@@ -546,9 +680,49 @@ func aggregateCharmVelocity(rows []dealer.StrikeRow, spot float64) float64 {
 	return sum / minutesPerYear
 }
 
+// topStrikesByDealerPos returns the n strikes with the largest |DealerPos|.
+// Stable secondary sort on (Expiry, Strike, Side) so the trimmed payload
+// is deterministic and diffable across consecutive aggregator iterations.
+// Returns rows itself when len(rows) ≤ n; otherwise allocates a new
+// slice (caller cannot mutate the source).
+func topStrikesByDealerPos(rows []dealer.StrikeRow, n int) []dealer.StrikeRow {
+	if n <= 0 || len(rows) <= n {
+		return rows
+	}
+	out := make([]dealer.StrikeRow, len(rows))
+	copy(out, rows)
+	sort.Slice(out, func(i, j int) bool {
+		ai := out[i].DealerPos
+		if ai < 0 {
+			ai = -ai
+		}
+		aj := out[j].DealerPos
+		if aj < 0 {
+			aj = -aj
+		}
+		if ai != aj {
+			return ai > aj
+		}
+		if out[i].Expiry != out[j].Expiry {
+			return out[i].Expiry < out[j].Expiry
+		}
+		if out[i].Strike != out[j].Strike {
+			return out[i].Strike < out[j].Strike
+		}
+		return out[i].Side < out[j].Side
+	})
+	return out[:n]
+}
+
 // fillGreeks populates Greeks fields on each row using cached IVs.
-func fillGreeks(p *Pipeline, rows []dealer.StrikeRow) {
-	now := uint64(time.Now().UnixNano())
+// nowNs is the pipeline's event-time "now" in ns since epoch; falls back
+// to wall-clock when zero (cold start). Driving TTE off event time is
+// what makes replay produce non-zero Greeks — wall-clock would be
+// months past the historical expiries on disk.
+func fillGreeks(p *Pipeline, rows []dealer.StrikeRow, nowNs uint64) {
+	if nowNs == 0 {
+		nowNs = uint64(time.Now().UnixNano())
+	}
 	for i := range rows {
 		r := &rows[i]
 		k := ivKey{expiry: r.Expiry, strike: r.Strike, side: r.Side}
@@ -558,7 +732,7 @@ func fillGreeks(p *Pipeline, rows []dealer.StrikeRow) {
 		if iv <= 0 {
 			continue
 		}
-		years := greeks.TimeToExpiryYears(now, r.Expiry)
+		years := greeks.TimeToExpiryYears(nowNs, r.Expiry)
 		if years <= 0 {
 			continue
 		}
@@ -581,6 +755,10 @@ func fillGreeks(p *Pipeline, rows []dealer.StrikeRow) {
 // sessionStart / sessionEnd are reserved for future state-output fields
 // (calendar metadata, time-to-close as a duration, etc). Currently
 // unused — pin already carries its own time-to-close minutes.
+//
+// eventNow is the pipeline's event-time "now" — drives the published
+// ts_ns so replay frames carry the historical session timestamp instead
+// of wall-clock. Live ingest passes eventNow ≈ time.Now().
 func publishState(nc *nats.Conn,
 	log interface{ Warn(string, ...any) },
 	sym feed.Symbol, spot float64,
@@ -592,7 +770,8 @@ func publishState(nc *nats.Conn,
 	zone dealer.CharmZone,
 	charmVel float64,
 	pin dealer.PinResult,
-	sessionStart, sessionEnd time.Time) {
+	sessionStart, sessionEnd time.Time,
+	eventNow time.Time) {
 	_ = sessionStart
 	_ = sessionEnd
 
@@ -655,8 +834,14 @@ func publishState(nc *nats.Conn,
 		} `json:"pin"`
 
 		Strikes     []strikeOut `json:"strikes"`
+		// StrikeCountTotal is the unfiltered strike count maintained by
+		// the aggregator. StrikeCountReturned is len(Strikes) after the
+		// top-N trim — clients use the diff to know they are looking at
+		// a concentration view, not the full chain.
+		StrikeCountTotal    int `json:"strike_count_total"`
+		StrikeCountReturned int `json:"strike_count_returned"`
 	}{
-		TsNs:        uint64(time.Now().UnixNano()),
+		TsNs:        uint64(eventNow.UnixNano()),
 		Symbol:      uint8(sym),
 		Spot:        spot,
 		BasisSmooth: bs.BasisSmooth,
@@ -702,13 +887,15 @@ func publishState(nc *nats.Conn,
 			TimeFactor:      c.TimeFactor,
 		})
 	}
-	for _, r := range rows {
+	for _, r := range topStrikesByDealerPos(rows, stateMaxStrikes) {
 		out.Strikes = append(out.Strikes, strikeOut{
 			Expiry: r.Expiry, Strike: r.Strike, Side: uint8(r.Side),
 			DealerPos: r.DealerPos, IV: r.IV, Gamma: r.Gamma,
 			Charm: r.Charm, Vanna: r.Vanna, GEXNotional: r.GEXNotional,
 		})
 	}
+	out.StrikeCountTotal = len(rows)
+	out.StrikeCountReturned = len(out.Strikes)
 	data, err := json.Marshal(out)
 	if err != nil {
 		log.Warn("state marshal", "err", err)

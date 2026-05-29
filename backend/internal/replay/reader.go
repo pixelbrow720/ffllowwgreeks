@@ -117,6 +117,14 @@ func scanTick(rows pgx.Rows) (feed.Tick, error) {
 	switch {
 	case expiry == nil:
 		t.AssetClass = feed.AssetClassFuture
+		// The ticks hypertable doesn't carry futures_contract; reconstruct
+		// the front-month CME symbol from (sym, ts) so the bus publisher
+		// can route the tick (it rejects futures ticks with empty
+		// FuturesContract). Convention: SPX→ES, NDX→NQ, front month = next
+		// quarterly H/M/U/Z whose third-Friday expiry is after ts.
+		if contract := FrontMonthContract(t.Symbol, ts); contract != "" {
+			copy(t.FuturesContract[:], contract)
+		}
 	default:
 		t.AssetClass = feed.AssetClassOption
 		y, m, d := expiry.Date()
