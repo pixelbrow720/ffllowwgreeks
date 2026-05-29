@@ -3,33 +3,30 @@
 import { useState } from "react";
 import { Panel, Pill } from "@/components/primitives/Panel";
 import { useSnapshot } from "@/lib/api/snapshot";
-import { fmtUsd } from "@/lib/utils";
-
-const SYMBOL = "SPX" as const;
+import { fmtSignedAbbr } from "@/lib/utils";
 
 interface Row {
   strike: number;
   side: "C" | "P";
-  gexM: number;     // GEX in $M
-  isWall: boolean;
+  gexM: number; // GEX in $M
+  isCallWall: boolean;
+  isPutWall: boolean;
+  isPin: boolean;
 }
 
-export function GEXProfile() {
+export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
   const [hover, setHover] = useState<number | null>(null);
-  const { snapshot, status, error } = useSnapshot(SYMBOL);
+  const { snapshot, status, error } = useSnapshot(symbol);
 
   if (!snapshot) {
     return (
-      <Panel
-        title="GEX Profile · Strikes"
-        subtitle="Dealer gamma exposure ($M notional, per strike)"
-      >
+      <Panel title="GEX by Strike" subtitle="Dealer gamma per strike ($M notional)">
         <ProfilePlaceholder status={status} message={error?.message} />
       </Panel>
     );
   }
 
-  // Aggregate strike → net GEX (sum across sides), keep dominant side label
+  // Aggregate strike → net GEX (sum across sides), keep dominant side label.
   const map = new Map<number, { net: number; bySide: { C: number; P: number } }>();
   snapshot.strikes.forEach((s) => {
     const cur = map.get(s.strike) ?? { net: 0, bySide: { C: 0, P: 0 } };
@@ -41,19 +38,18 @@ export function GEXProfile() {
   const rows: Row[] = Array.from(map.entries())
     .map(([strike, v]) => ({
       strike,
-      side: v.bySide.C < v.bySide.P ? "P" : ("C" as "C" | "P"),
+      side: (v.bySide.C < v.bySide.P ? "P" : "C") as "C" | "P",
       gexM: v.net,
-      isWall: strike === snapshot.call_wall || strike === snapshot.put_wall,
+      isCallWall: strike === snapshot.call_wall,
+      isPutWall: strike === snapshot.put_wall,
+      isPin: snapshot.pin.active && strike === snapshot.pin.top_strike,
     }))
     .sort((a, b) => b.strike - a.strike);
 
   if (rows.length === 0) {
     return (
-      <Panel
-        title="GEX Profile · Strikes"
-        subtitle="Dealer gamma exposure ($M notional, per strike)"
-      >
-        <ProfilePlaceholder status="ready" message="snapshot has no strikes" empty />
+      <Panel title="GEX by Strike" subtitle="Dealer gamma per strike ($M notional)">
+        <ProfilePlaceholder status="ready" empty message="snapshot has no strikes yet" />
       </Panel>
     );
   }
@@ -63,16 +59,15 @@ export function GEXProfile() {
 
   // SVG layout
   const W = 720;
-  const rowH = 28;
-  const PAD = { l: 70, r: 84, t: 18, b: 26 };
+  const rowH = 22;
+  const PAD = { l: 64, r: 80, t: 14, b: 22 };
   const H = PAD.t + PAD.b + rows.length * rowH;
   const plotW = W - PAD.l - PAD.r;
   const center = PAD.l + plotW / 2;
 
-  const xOf = (gexM: number) =>
-    center + (gexM / maxAbs) * (plotW / 2);
+  const xOf = (gexM: number) => center + (gexM / maxAbs) * (plotW / 2);
 
-  // Find virtual y of spot between two adjacent strikes
+  // Find virtual y of spot between two adjacent strikes.
   const sortedAsc = [...rows].sort((a, b) => a.strike - b.strike);
   let spotY = PAD.t;
   for (let i = 0; i < sortedAsc.length - 1; i++) {
@@ -80,7 +75,6 @@ export function GEXProfile() {
     const hi = sortedAsc[i + 1].strike;
     if (spot >= lo && spot <= hi) {
       const t = (spot - lo) / (hi - lo);
-      // sortedAsc[i] is at row index = rows.length - 1 - i (since rows is desc)
       const yLo = PAD.t + (rows.length - 1 - i) * rowH + rowH / 2;
       const yHi = PAD.t + (rows.length - 1 - (i + 1)) * rowH + rowH / 2;
       spotY = yLo + (yHi - yLo) * t;
@@ -90,43 +84,42 @@ export function GEXProfile() {
 
   return (
     <Panel
-      title="GEX Profile · Strikes"
-      subtitle="Dealer gamma exposure ($M notional, per strike)"
+      title="GEX by Strike"
+      subtitle="Dealer gamma per strike ($M notional)"
       actions={
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-ink-muted">
-            <span className="h-1.5 w-3 rounded-full bg-accent-long" />
-            Long γ
+        <div className="flex items-center gap-2.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1 w-3 bg-accent-long" />
+            long \u03B3
           </span>
-          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-ink-muted">
-            <span className="h-1.5 w-3 rounded-full bg-accent-short" />
-            Short γ
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1 w-3 bg-accent-short" />
+            short \u03B3
           </span>
           <Pill tone={snapshot.net_gex < 0 ? "down" : "up"}>
-            Net {fmtUsd(snapshot.net_gex / 1e9, true)}B
+            net {fmtSignedAbbr(snapshot.net_gex)}
           </Pill>
         </div>
       }
-      contentClassName="p-0"
+      contentClassName="p-0 flex flex-col min-h-0"
     >
-      <div className="relative">
+      <div className="relative flex-1 min-h-0 overflow-y-auto">
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          className="w-full h-auto"
-          preserveAspectRatio="xMidYMid meet"
+          width={W}
+          height={H}
+          className="block w-full"
+          preserveAspectRatio="xMidYMin meet"
         >
           <defs>
             <linearGradient id="gexNeg" x1="1" y1="0" x2="0" y2="0">
               <stop offset="0%" stopColor="#ef4444" stopOpacity="0.95" />
-              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.18" />
             </linearGradient>
             <linearGradient id="gexPos" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.95" />
+              <stop offset="0%" stopColor="#10b981" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#10b981" stopOpacity="0.95" />
             </linearGradient>
-            <filter id="barGlow" x="-30%" y="-50%" width="160%" height="200%">
-              <feGaussianBlur stdDeviation="3" />
-            </filter>
           </defs>
 
           {/* center axis */}
@@ -140,7 +133,7 @@ export function GEXProfile() {
           />
           <text
             x={center}
-            y={H - PAD.b + 18}
+            y={H - PAD.b + 14}
             textAnchor="middle"
             fontSize="9"
             fill="#71717a"
@@ -167,7 +160,7 @@ export function GEXProfile() {
                 />
                 <text
                   x={x}
-                  y={H - PAD.b + 18}
+                  y={H - PAD.b + 14}
                   textAnchor="middle"
                   fontSize="9"
                   fill="#52525b"
@@ -180,28 +173,27 @@ export function GEXProfile() {
             );
           })}
 
-          {/* spot crosshair */}
+          {/* spot crosshair — monochrome ink-high */}
           <line
             x1={PAD.l}
             y1={spotY}
             x2={W - PAD.r}
             y2={spotY}
-            stroke="#ff2a5b"
-            strokeWidth="1.2"
+            stroke="#f4f4f5"
+            strokeWidth="1"
             strokeDasharray="3 4"
             opacity="0.85"
           />
           <rect
-            x={W - PAD.r + 6}
-            y={spotY - 9}
-            width={70}
-            height={18}
-            rx={4}
-            fill="#ff2a5b"
-            opacity="0.9"
+            x={W - PAD.r + 4}
+            y={spotY - 8}
+            width={68}
+            height={16}
+            fill="#f4f4f5"
+            opacity="0.95"
           />
           <text
-            x={W - PAD.r + 41}
+            x={W - PAD.r + 38}
             y={spotY + 3}
             textAnchor="middle"
             fontSize="10"
@@ -217,13 +209,10 @@ export function GEXProfile() {
             const y = PAD.t + i * rowH;
             const cy = y + rowH / 2;
             const isHover = hover === r.strike;
-            const isCallWall = r.strike === snapshot.call_wall;
-            const isPutWall = r.strike === snapshot.put_wall;
 
             const barX = r.gexM < 0 ? xOf(r.gexM) : center;
             const barW = Math.abs(xOf(r.gexM) - center);
             const fill = r.gexM < 0 ? "url(#gexNeg)" : "url(#gexPos)";
-            const glowColor = r.gexM < 0 ? "#ef4444" : "#22c55e";
 
             return (
               <g
@@ -232,7 +221,6 @@ export function GEXProfile() {
                 onMouseLeave={() => setHover(null)}
                 className="cursor-default"
               >
-                {/* row hover bg */}
                 {isHover && (
                   <rect
                     x={PAD.l - 60}
@@ -244,66 +232,62 @@ export function GEXProfile() {
                   />
                 )}
 
-                {/* strike label */}
                 <text
-                  x={PAD.l - 12}
+                  x={PAD.l - 10}
                   y={cy + 3}
                   textAnchor="end"
                   fontSize="11"
-                  fill={isHover || isPutWall || isCallWall ? "#f4f4f5" : "#a1a1aa"}
+                  fill={
+                    isHover || r.isPutWall || r.isCallWall || r.isPin
+                      ? "#f4f4f5"
+                      : "#a1a1aa"
+                  }
                   fontFamily="var(--font-jb-mono)"
-                  fontWeight={isPutWall || isCallWall ? "600" : "400"}
+                  fontWeight={r.isPutWall || r.isCallWall || r.isPin ? "600" : "400"}
                 >
                   {r.strike}
                 </text>
 
-                {/* wall tag */}
-                {(isCallWall || isPutWall) && (
+                {(r.isCallWall || r.isPutWall) && (
                   <text
                     x={PAD.l - 56}
                     y={cy + 3}
                     fontSize="8.5"
-                    fill={isCallWall ? "#22c55e" : "#ef4444"}
+                    fill={r.isCallWall ? "#10b981" : "#ef4444"}
                     fontFamily="var(--font-jb-mono)"
                     letterSpacing="1"
                   >
-                    {isCallWall ? "C-WALL" : "P-WALL"}
+                    {r.isCallWall ? "C-WALL" : "P-WALL"}
+                  </text>
+                )}
+                {r.isPin && !r.isCallWall && !r.isPutWall && (
+                  <text
+                    x={PAD.l - 56}
+                    y={cy + 3}
+                    fontSize="8.5"
+                    fill="#f59e0b"
+                    fontFamily="var(--font-jb-mono)"
+                    letterSpacing="1"
+                  >
+                    PIN
                   </text>
                 )}
 
-                {/* glow underbar (peak strikes) */}
-                {Math.abs(r.gexM) > maxAbs * 0.7 && (
-                  <rect
-                    x={barX - 3}
-                    y={cy - 11}
-                    width={barW + 6}
-                    height={22}
-                    fill={glowColor}
-                    opacity={0.4}
-                    filter="url(#barGlow)"
-                  />
-                )}
-
-                {/* bar */}
                 <rect
                   x={barX}
-                  y={cy - 7}
+                  y={cy - 6}
                   width={Math.max(2, barW)}
-                  height={14}
-                  rx={2}
+                  height={12}
                   fill={fill}
-                  stroke={isHover ? glowColor : "transparent"}
-                  strokeWidth="1"
                   opacity={isHover ? 1 : 0.92}
                 />
 
-                {/* value label */}
                 <text
                   x={r.gexM < 0 ? barX - 6 : barX + barW + 6}
                   y={cy + 3}
                   textAnchor={r.gexM < 0 ? "end" : "start"}
                   fontSize="10"
-                  fill={isHover ? glowColor : "#71717a"}
+                  fill={isHover ? "#f4f4f5" : "#71717a"}
                   fontFamily="var(--font-jb-mono)"
                   fontWeight="500"
                 >
@@ -314,24 +298,23 @@ export function GEXProfile() {
             );
           })}
         </svg>
+      </div>
 
-        {/* footer caption */}
-        <div className="flex items-center justify-between px-5 pb-4 pt-1 text-[10.5px] text-ink-faint">
-          <span>
-            Pin candidate{" "}
-            <span className="tabnum text-signal-pin">@{snapshot.pin.top_strike}</span>{" "}
-            · prob{" "}
-            <span className="tabnum text-ink-base">
-              {(snapshot.pin.top_probability * 100).toFixed(0)}%
-            </span>
+      <div className="flex shrink-0 items-center justify-between border-t border-line px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+        <span>
+          pin{" "}
+          <span className="tabnum text-accent-warn">@{snapshot.pin.top_strike}</span>{" "}
+          · prob{" "}
+          <span className="tabnum text-ink-base">
+            {(snapshot.pin.top_probability * 100).toFixed(0)}%
           </span>
-          <span>
-            Walls — call{" "}
-            <span className="tabnum text-accent-long">{snapshot.call_wall}</span>
-            {" · "}put{" "}
-            <span className="tabnum text-accent-short">{snapshot.put_wall}</span>
-          </span>
-        </div>
+        </span>
+        <span>
+          walls — call{" "}
+          <span className="tabnum text-accent-long">{snapshot.call_wall}</span>
+          {" · "}put{" "}
+          <span className="tabnum text-accent-short">{snapshot.put_wall}</span>
+        </span>
       </div>
     </Panel>
   );
@@ -348,13 +331,13 @@ function ProfilePlaceholder({
 }) {
   const isError = status === "error";
   return (
-    <div className="flex h-64 items-center justify-center">
+    <div className="flex h-64 items-center justify-center px-3">
       {isError || empty ? (
-        <span className="text-[11px] uppercase tracking-[0.18em] text-accent-warn">
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-ink-faint">
           {message ?? "no live state"}
         </span>
       ) : (
-        <div className="h-full w-full mx-5 rounded-md bg-bg-subtle/40 animate-pulse" />
+        <div className="h-full w-full animate-pulse bg-bg-subtle/40" />
       )}
     </div>
   );

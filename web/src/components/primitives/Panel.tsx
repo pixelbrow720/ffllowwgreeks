@@ -11,6 +11,9 @@ interface PanelProps {
   noPad?: boolean;
 }
 
+// Panel — terminal-grade card primitive. Sharp corners, single hairline,
+// no soft shadow. The header strip is a 28px monospace caption that does
+// not compete with the data inside.
 export function Panel({
   title,
   subtitle,
@@ -23,30 +26,32 @@ export function Panel({
   return (
     <div
       className={cn(
-        "group/panel relative rounded-2xl border border-line/70",
-        "bg-gradient-to-b from-bg-card/95 to-bg-card/60 backdrop-blur-sm",
-        "shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_30px_60px_-30px_rgba(0,0,0,0.6)]",
-        "flex flex-col overflow-hidden transition-colors",
-        "hover:border-line",
+        "relative flex h-full min-h-0 flex-col overflow-hidden border border-line bg-bg-card",
         className,
       )}
     >
       {(title || actions) && (
-        <header className="flex items-center justify-between border-b border-line/50 px-5 py-3">
-          <div className="min-w-0">
+        <header className="flex h-7 shrink-0 items-center justify-between border-b border-line/70 px-3">
+          <div className="flex min-w-0 items-baseline gap-2">
             {title && (
-              <h3 className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-ink-muted">
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-muted">
                 {title}
               </h3>
             )}
             {subtitle && (
-              <p className="mt-0.5 text-xs text-ink-faint">{subtitle}</p>
+              <p className="truncate text-[10.5px] text-ink-faint">{subtitle}</p>
             )}
           </div>
-          {actions && <div className="flex items-center gap-1.5">{actions}</div>}
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cn(noPad ? "" : "p-5", "flex-1 min-h-0", contentClassName)}>
+      <div
+        className={cn(
+          noPad ? "" : "p-3",
+          "min-h-0 flex-1",
+          contentClassName,
+        )}
+      >
         {children}
       </div>
     </div>
@@ -58,7 +63,7 @@ interface StatProps {
   value: ReactNode;
   delta?: ReactNode;
   hint?: ReactNode;
-  accent?: "default" | "up" | "down" | "warn" | "brand";
+  accent?: "default" | "up" | "down" | "warn";
   className?: string;
 }
 
@@ -67,20 +72,21 @@ const accentColors = {
   up: "text-accent-long",
   down: "text-accent-short",
   warn: "text-accent-warn",
-  brand: "text-brand-hi",
 };
 
 export function Stat({ label, value, delta, hint, accent = "default", className }: StatProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <span className="text-[10px] uppercase tracking-[0.18em] text-ink-faint">{label}</span>
+      <span className="font-mono text-[9.5px] uppercase tracking-[0.2em] text-ink-faint">
+        {label}
+      </span>
       <div className="flex items-baseline gap-2">
         <span className={cn("tabnum text-2xl font-medium leading-none", accentColors[accent])}>
           {value}
         </span>
         {delta && <span className="tabnum text-xs text-ink-muted">{delta}</span>}
       </div>
-      {hint && <span className="text-[11px] text-ink-faint">{hint}</span>}
+      {hint && <span className="text-[10.5px] text-ink-faint">{hint}</span>}
     </div>
   );
 }
@@ -91,22 +97,21 @@ export function Pill({
   className,
 }: {
   children: ReactNode;
-  tone?: "neutral" | "brand" | "up" | "down" | "warn" | "info" | "pin";
+  tone?: "neutral" | "up" | "down" | "warn";
   className?: string;
 }) {
+  // Pills are intentionally limited to the three earned accents + neutral.
+  // No brand pink, no info blue, no pin violet — see CLAUDE.md color rule.
   const toneCls: Record<string, string> = {
-    neutral: "border-line/70 text-ink-base bg-bg-subtle/50",
-    brand: "border-brand/40 text-brand-hi bg-brand-dim",
+    neutral: "border-line text-ink-muted bg-bg-subtle/40",
     up: "border-accent-long/30 text-accent-long bg-accent-long/10",
     down: "border-accent-short/30 text-accent-short bg-accent-short/10",
     warn: "border-accent-warn/30 text-accent-warn bg-accent-warn/10",
-    info: "border-signal-info/30 text-signal-info bg-signal-info/10",
-    pin: "border-signal-pin/30 text-signal-pin bg-signal-pin/10",
   };
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]",
+        "inline-flex items-center gap-1.5 border px-1.5 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.16em]",
         toneCls[tone],
         className,
       )}
