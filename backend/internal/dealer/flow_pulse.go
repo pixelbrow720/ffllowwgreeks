@@ -23,8 +23,18 @@ const (
 	DefaultFlowPulseMultiplier     = 100.0
 )
 
-// charmPerMinScale converts the per-year charm parameter used in the
-// formula to a per-minute hedge accumulation (×60 per spec §10.2).
+// charmPerMinScale converts the per-trade charm contribution to a per-bucket
+// hedge demand using the spec multiplier from docs/COMPUTE_MODEL.md §10.2
+// (literally "× 60"). Note this is an empirical scaling: greeks.Greeks.Charm
+// is per-year (∂Δ/∂t · year), and the DPI-side CharmVelocity divides by
+// minutesPerYear=525600 (dpi.go:16) to get a per-minute hedge rate. Here we
+// instead multiply by 60, which gets compensated downstream by the
+// Normalizer (5e6) so the GammaPulse / CharmPulse / VannaPulse components
+// still land in the ~1.0 range. The decomposition is interpretable by
+// magnitude/sign convention but the per-line scale is calibrated to the
+// Normalizer, not derived analytically — empirical recalibration against
+// realised 0DTE flow is gated on Databento OPRA unlock. Tracked in
+// docs/PROGRESS.md ("Math/quant validation").
 const charmPerMinScale = 60.0
 
 // FlowPulse is one bucket-snapshot of the oscillator. All pulse fields
