@@ -1,7 +1,7 @@
 .PHONY: help up down logs ps build run-api run-compute run-ingest \
         demo-up demo-down synth-state ws-stress backfill-plan jetstream-setup smoke-e2e \
         test test-v bench lint fmt vet tidy check \
-        migrate-up migrate-down migrate-create clean
+        migrate-up migrate-down migrate-create calibrate clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-20s %s\n", $$1, $$2}'
@@ -95,6 +95,15 @@ migrate-down: ## Rollback last DB migration
 
 migrate-create: ## Create new migration: make migrate-create NAME=add_something
 	@migrate create -ext sql -dir scripts/migrations -seq $(NAME)
+
+# ─── Offline calibration ───
+calibrate: ## Fit DPI/Charm/Pin normalizers from the 9-day archive into data/calibration/<date>.json
+	@mkdir -p data/calibration
+	go run ./cmd/calibrate \
+	  --from 2026-02-02T00:00:00Z \
+	  --to   2026-02-13T00:00:00Z \
+	  --symbol spx,ndx \
+	  --output data/calibration/$(shell date +%Y-%m-%d).json
 
 # ─── Cleanup ───
 clean: ## Remove build artifacts
