@@ -7,7 +7,7 @@ import { cn, fmtNum } from "@/lib/utils";
 const TAG_TONE = {
   SWEEP: "text-brand-hi border-brand/30 bg-brand-dim",
   BLOCK: "text-signal-info border-signal-info/30 bg-signal-info/10",
-  OPENING: "text-signal-warn border-signal-warn/30 bg-signal-warn/10",
+  OPENING: "text-accent-warn border-accent-warn/30 bg-accent-warn/10",
   REPEAT: "text-ink-muted border-line bg-bg-subtle",
 };
 
@@ -42,7 +42,7 @@ export function FlowTape() {
             <span
               className={cn(
                 "font-mono text-[11px] font-semibold",
-                row.side === "C" ? "text-signal-up" : "text-signal-down",
+                row.side === "C" ? "text-accent-long" : "text-accent-short",
               )}
             >
               {row.side === "C" ? "CALL" : "PUT"}
@@ -56,7 +56,7 @@ export function FlowTape() {
             <span
               className={cn(
                 "font-mono text-[10px] uppercase tracking-wider",
-                row.aggressor === "BUY" ? "text-signal-up" : "text-signal-down",
+                row.aggressor === "BUY" ? "text-accent-long" : "text-accent-short",
               )}
             >
               {row.aggressor}

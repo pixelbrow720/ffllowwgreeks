@@ -24,7 +24,7 @@ export function ForcedFlow() {
         {FORCED_FLOW_SCENARIOS.map((s, i) => {
           const isMajor = i === 1;
           const dir = s.net_pressure < 0 ? "SELL" : "BUY";
-          const dirColor = s.net_pressure < 0 ? "text-signal-down" : "text-signal-up";
+          const dirColor = s.net_pressure < 0 ? "text-accent-short" : "text-accent-long";
           const pctOfDay = Math.min(100, (Math.abs(s.net_pressure) / 3e9) * 100);
           return (
             <div
@@ -51,8 +51,8 @@ export function ForcedFlow() {
                     className={cn(
                       "absolute inset-y-0 left-0 rounded-full",
                       s.net_pressure < 0
-                        ? "bg-gradient-to-r from-signal-down/60 to-signal-down"
-                        : "bg-gradient-to-r from-signal-up/60 to-signal-up",
+                        ? "bg-gradient-to-r from-accent-short/60 to-accent-short"
+                        : "bg-gradient-to-r from-accent-long/60 to-accent-long",
                     )}
                     style={{ width: `${pctOfDay}%` }}
                   />

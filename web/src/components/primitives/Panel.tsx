@@ -64,9 +64,9 @@ interface StatProps {
 
 const accentColors = {
   default: "text-ink-high",
-  up: "text-signal-up",
-  down: "text-signal-down",
-  warn: "text-signal-warn",
+  up: "text-accent-long",
+  down: "text-accent-short",
+  warn: "text-accent-warn",
   brand: "text-brand-hi",
 };
 
@@ -97,9 +97,9 @@ export function Pill({
   const toneCls: Record<string, string> = {
     neutral: "border-line/70 text-ink-base bg-bg-subtle/50",
     brand: "border-brand/40 text-brand-hi bg-brand-dim",
-    up: "border-signal-up/30 text-signal-up bg-signal-up/10",
-    down: "border-signal-down/30 text-signal-down bg-signal-down/10",
-    warn: "border-signal-warn/30 text-signal-warn bg-signal-warn/10",
+    up: "border-accent-long/30 text-accent-long bg-accent-long/10",
+    down: "border-accent-short/30 text-accent-short bg-accent-short/10",
+    warn: "border-accent-warn/30 text-accent-warn bg-accent-warn/10",
     info: "border-signal-info/30 text-signal-info bg-signal-info/10",
     pin: "border-signal-pin/30 text-signal-pin bg-signal-pin/10",
   };

@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { Panel, Pill } from "@/components/primitives/Panel";
-import { SNAPSHOT } from "@/lib/mock";
+import { useSnapshot } from "@/lib/api/snapshot";
 import { fmtUsd } from "@/lib/utils";
+
+const SYMBOL = "SPX" as const;
 
 interface Row {
   strike: number;
@@ -14,10 +16,22 @@ interface Row {
 
 export function GEXProfile() {
   const [hover, setHover] = useState<number | null>(null);
+  const { snapshot, status, error } = useSnapshot(SYMBOL);
+
+  if (!snapshot) {
+    return (
+      <Panel
+        title="GEX Profile · Strikes"
+        subtitle="Dealer gamma exposure ($M notional, per strike)"
+      >
+        <ProfilePlaceholder status={status} message={error?.message} />
+      </Panel>
+    );
+  }
 
   // Aggregate strike → net GEX (sum across sides), keep dominant side label
   const map = new Map<number, { net: number; bySide: { C: number; P: number } }>();
-  SNAPSHOT.strikes.forEach((s) => {
+  snapshot.strikes.forEach((s) => {
     const cur = map.get(s.strike) ?? { net: 0, bySide: { C: 0, P: 0 } };
     cur.net += s.gex_notional / 1e6;
     cur.bySide[s.side] += s.gex_notional / 1e6;
@@ -29,12 +43,23 @@ export function GEXProfile() {
       strike,
       side: v.bySide.C < v.bySide.P ? "P" : ("C" as "C" | "P"),
       gexM: v.net,
-      isWall: strike === SNAPSHOT.call_wall || strike === SNAPSHOT.put_wall,
+      isWall: strike === snapshot.call_wall || strike === snapshot.put_wall,
     }))
     .sort((a, b) => b.strike - a.strike);
 
-  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.gexM)));
-  const spot = SNAPSHOT.spot;
+  if (rows.length === 0) {
+    return (
+      <Panel
+        title="GEX Profile · Strikes"
+        subtitle="Dealer gamma exposure ($M notional, per strike)"
+      >
+        <ProfilePlaceholder status="ready" message="snapshot has no strikes" empty />
+      </Panel>
+    );
+  }
+
+  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.gexM))) || 1;
+  const spot = snapshot.spot;
 
   // SVG layout
   const W = 720;
@@ -70,15 +95,15 @@ export function GEXProfile() {
       actions={
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-ink-muted">
-            <span className="h-1.5 w-3 rounded-full bg-signal-up" />
+            <span className="h-1.5 w-3 rounded-full bg-accent-long" />
             Long γ
           </span>
           <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-ink-muted">
-            <span className="h-1.5 w-3 rounded-full bg-signal-down" />
+            <span className="h-1.5 w-3 rounded-full bg-accent-short" />
             Short γ
           </span>
-          <Pill tone="down">
-            Net {fmtUsd(SNAPSHOT.net_gex / 1e9, true)}B
+          <Pill tone={snapshot.net_gex < 0 ? "down" : "up"}>
+            Net {fmtUsd(snapshot.net_gex / 1e9, true)}B
           </Pill>
         </div>
       }
@@ -192,8 +217,8 @@ export function GEXProfile() {
             const y = PAD.t + i * rowH;
             const cy = y + rowH / 2;
             const isHover = hover === r.strike;
-            const isCallWall = r.strike === SNAPSHOT.call_wall;
-            const isPutWall = r.strike === SNAPSHOT.put_wall;
+            const isCallWall = r.strike === snapshot.call_wall;
+            const isPutWall = r.strike === snapshot.put_wall;
 
             const barX = r.gexM < 0 ? xOf(r.gexM) : center;
             const barW = Math.abs(xOf(r.gexM) - center);
@@ -294,20 +319,43 @@ export function GEXProfile() {
         <div className="flex items-center justify-between px-5 pb-4 pt-1 text-[10.5px] text-ink-faint">
           <span>
             Pin candidate{" "}
-            <span className="tabnum text-signal-pin">@{SNAPSHOT.pin.top_strike}</span>{" "}
+            <span className="tabnum text-signal-pin">@{snapshot.pin.top_strike}</span>{" "}
             · prob{" "}
             <span className="tabnum text-ink-base">
-              {(SNAPSHOT.pin.top_probability * 100).toFixed(0)}%
+              {(snapshot.pin.top_probability * 100).toFixed(0)}%
             </span>
           </span>
           <span>
             Walls — call{" "}
-            <span className="tabnum text-signal-up">{SNAPSHOT.call_wall}</span>
+            <span className="tabnum text-accent-long">{snapshot.call_wall}</span>
             {" · "}put{" "}
-            <span className="tabnum text-signal-down">{SNAPSHOT.put_wall}</span>
+            <span className="tabnum text-accent-short">{snapshot.put_wall}</span>
           </span>
         </div>
       </div>
     </Panel>
+  );
+}
+
+function ProfilePlaceholder({
+  status,
+  message,
+  empty = false,
+}: {
+  status: string;
+  message?: string;
+  empty?: boolean;
+}) {
+  const isError = status === "error";
+  return (
+    <div className="flex h-64 items-center justify-center">
+      {isError || empty ? (
+        <span className="text-[11px] uppercase tracking-[0.18em] text-accent-warn">
+          {message ?? "no live state"}
+        </span>
+      ) : (
+        <div className="h-full w-full mx-5 rounded-md bg-bg-subtle/40 animate-pulse" />
+      )}
+    </div>
   );
 }

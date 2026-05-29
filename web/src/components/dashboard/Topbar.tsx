@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { Bell, Command, Play, Search, Share2 } from "lucide-react";
-import { SNAPSHOT } from "@/lib/mock";
+import { useSnapshot } from "@/lib/api/snapshot";
+import { useSocketStatus } from "@/lib/ws/useLiveSocket";
 import { fmtNum, fmtUsd } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
+const SYMBOL = "SPX" as const;
+
 export function Topbar() {
   const [revealed, setRevealed] = useState(false);
+  const { snapshot, status, error } = useSnapshot(SYMBOL);
+  const wsStatus = useSocketStatus();
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -16,6 +21,17 @@ export function Topbar() {
     window.addEventListener("mousemove", onMove, { passive: true });
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
+
+  const wsLive = wsStatus === "open";
+  const ready = snapshot !== null;
+  const showError = status === "error" && !snapshot;
+
+  const spot = snapshot?.spot ?? 0;
+  const netGex = snapshot?.net_gex ?? 0;
+  const dpi = snapshot?.dpi.composite ?? 0;
+  const pinProb = snapshot?.pin.top_probability ?? 0;
+  const pinStrike = snapshot?.pin.top_strike ?? 0;
+  const zeroGamma = snapshot?.zero_gamma ?? 0;
 
   return (
     <>
@@ -35,19 +51,36 @@ export function Topbar() {
         <div className="flex items-center gap-1 rounded-full border border-line/70 bg-bg-card/70 px-2 py-1.5 backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.6)]">
           <span className="ml-1 mr-2 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-ink-base">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal-up opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-signal-up" />
+              {wsLive && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-long opacity-75" />
+              )}
+              <span
+                className={cn(
+                  "relative inline-flex h-1.5 w-1.5 rounded-full",
+                  wsLive ? "bg-accent-long" : "bg-ink-faint",
+                )}
+              />
             </span>
-            {SNAPSHOT.symbol}
+            {SYMBOL}
           </span>
           <Sep />
-          <KPI label="Spot" value={fmtNum(SNAPSHOT.spot, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} tone="brand" />
-          <Sep />
-          <KPI label="Net GEX" value={`${fmtUsd(SNAPSHOT.net_gex / 1e9, true)}B`} tone="down" />
-          <Sep />
-          <KPI label="DPI" value={SNAPSHOT.dpi.composite.toFixed(1)} tone="brand" />
-          <Sep />
-          <KPI label="Pin" value={`${(SNAPSHOT.pin.top_probability * 100).toFixed(0)}%`} tone="pin" />
+          {showError ? (
+            <span className="px-2 text-[10px] uppercase tracking-[0.16em] text-accent-warn">
+              {error?.code ?? "OFFLINE"}
+            </span>
+          ) : ready ? (
+            <>
+              <KPI label="Spot" value={fmtNum(spot, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} tone="brand" />
+              <Sep />
+              <KPI label="Net GEX" value={`${fmtUsd(netGex / 1e9, true)}B`} tone={netGex < 0 ? "down" : "up"} />
+              <Sep />
+              <KPI label="DPI" value={dpi.toFixed(1)} tone="brand" />
+              <Sep />
+              <KPI label="Pin" value={`${(pinProb * 100).toFixed(0)}%`} tone="pin" />
+            </>
+          ) : (
+            <SkeletonStrip />
+          )}
         </div>
       </div>
 
@@ -65,7 +98,7 @@ export function Topbar() {
         {/* symbol pair */}
         <div className="flex items-center gap-1 rounded-full border border-line/70 bg-bg-base/50 p-1">
           <button className="rounded-full bg-bg-card px-3 py-1 text-[11px] uppercase tracking-[0.16em] font-medium text-ink-high shadow-[0_0_12px_-4px_rgba(255,42,91,0.4)]">
-            {SNAPSHOT.symbol}
+            {SYMBOL}
           </button>
           <button className="rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-ink-faint hover:text-ink-base transition-colors">
             NDX
@@ -74,8 +107,8 @@ export function Topbar() {
 
         <div className="hidden md:flex items-center gap-2 rounded-full border border-line/70 bg-bg-base/40 px-3 py-1.5">
           <span className="text-[10px] uppercase tracking-[0.18em] text-ink-faint">Session</span>
-          <span className="tabnum text-[11px] text-ink-high">2026-05-27</span>
-          <span className="text-[10px] uppercase tracking-[0.16em] text-signal-up">· 0DTE</span>
+          <span className="tabnum text-[11px] text-ink-high">{formatSessionDate(snapshot?.ts_ns)}</span>
+          <span className="text-[10px] uppercase tracking-[0.16em] text-accent-long">· 0DTE</span>
         </div>
 
         <div className="relative hidden lg:flex flex-1 max-w-sm items-center">
@@ -90,15 +123,25 @@ export function Topbar() {
         </div>
 
         <div className="ml-auto hidden xl:flex items-center gap-1 rounded-full border border-line/70 bg-bg-base/30 px-2 py-1">
-          <KPI label="Spot" value={fmtNum(SNAPSHOT.spot, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} tone="brand" />
-          <Sep />
-          <KPI label="Net GEX" value={`${fmtUsd(SNAPSHOT.net_gex / 1e9, true)}B`} tone="down" />
-          <Sep />
-          <KPI label="Zero γ" value={SNAPSHOT.zero_gamma.toFixed(1)} />
-          <Sep />
-          <KPI label="DPI" value={SNAPSHOT.dpi.composite.toFixed(1)} tone="brand" />
-          <Sep />
-          <KPI label="Pin" value={`${(SNAPSHOT.pin.top_probability * 100).toFixed(0)}%`} hint={`@${SNAPSHOT.pin.top_strike}`} tone="pin" />
+          {showError ? (
+            <span className="px-2 text-[10px] uppercase tracking-[0.16em] text-accent-warn">
+              backend unreachable
+            </span>
+          ) : ready ? (
+            <>
+              <KPI label="Spot" value={fmtNum(spot, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} tone="brand" />
+              <Sep />
+              <KPI label="Net GEX" value={`${fmtUsd(netGex / 1e9, true)}B`} tone={netGex < 0 ? "down" : "up"} />
+              <Sep />
+              <KPI label="Zero γ" value={zeroGamma.toFixed(1)} />
+              <Sep />
+              <KPI label="DPI" value={dpi.toFixed(1)} tone="brand" />
+              <Sep />
+              <KPI label="Pin" value={`${(pinProb * 100).toFixed(0)}%`} hint={`@${pinStrike}`} tone="pin" />
+            </>
+          ) : (
+            <SkeletonStrip wide />
+          )}
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -122,6 +165,26 @@ function Sep() {
   return <span className="h-4 w-px bg-line/60" />;
 }
 
+function SkeletonStrip({ wide = false }: { wide?: boolean }) {
+  const cells = wide ? 5 : 4;
+  return (
+    <span className="flex items-center gap-2 px-2">
+      {Array.from({ length: cells }).map((_, i) => (
+        <span key={i} className="h-3 w-12 rounded-sm bg-bg-subtle/60 animate-pulse" />
+      ))}
+    </span>
+  );
+}
+
+function formatSessionDate(ts_ns: number | undefined) {
+  if (!ts_ns) return "—";
+  const d = new Date(Math.floor(ts_ns / 1e6));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function KPI({
   label,
   value,
@@ -135,8 +198,8 @@ function KPI({
 }) {
   const toneCls = {
     default: "text-ink-high",
-    up: "text-signal-up",
-    down: "text-signal-down",
+    up: "text-accent-long",
+    down: "text-accent-short",
     brand: "text-brand-hi",
     pin: "text-signal-pin",
   };

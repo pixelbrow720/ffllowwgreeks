@@ -126,10 +126,10 @@ export function Sidebar() {
             </div>
             <div className="leading-tight min-w-0 flex-1">
               <div className="truncate text-[12.5px] text-ink-high">marko.k</div>
-              <div className="flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.16em] text-signal-up">
+              <div className="flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.16em] text-accent-long">
                 <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal-up opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-signal-up" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-long opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent-long" />
                 </span>
                 Pro · live
               </div>
@@ -218,7 +218,7 @@ function Row({
       <span
         className={cn(
           "tabnum",
-          tone === "up" ? "text-signal-up" : "text-ink-base",
+          tone === "up" ? "text-accent-long" : "text-ink-base",
         )}
       >
         {value}

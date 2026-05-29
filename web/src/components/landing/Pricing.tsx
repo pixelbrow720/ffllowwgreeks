@@ -70,7 +70,7 @@ export function Pricing() {
               <div
                 className={`group flex items-center gap-3 rounded-xl border bg-bg-base/60 px-4 py-3 transition-colors ${
                   touched && key && !valid
-                    ? "border-signal-down/50"
+                    ? "border-accent-short/50"
                     : "border-line focus-within:border-brand/60"
                 }`}
               >
@@ -90,7 +90,7 @@ export function Pricing() {
                   className="flex-1 bg-transparent font-mono text-[14px] text-ink-high placeholder-ink-ghost outline-none tabnum"
                 />
                 {valid && (
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-signal-up">
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-accent-long">
                     valid
                   </span>
                 )}

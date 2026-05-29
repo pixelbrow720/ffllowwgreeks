@@ -120,7 +120,7 @@ function FloatingPanel() {
           <div className="text-[10px] uppercase tracking-[0.18em] text-ink-faint">
             Forced flow · next 60m
           </div>
-          <div className="mt-2 tabnum text-3xl font-medium text-signal-down">
+          <div className="mt-2 tabnum text-3xl font-medium text-accent-short">
             −$2.91B
           </div>
           <div className="mt-1 text-[11px] text-ink-faint">
@@ -145,7 +145,7 @@ function Row({
 }) {
   const toneCls = {
     default: "text-ink-high",
-    down: "text-signal-down",
+    down: "text-accent-short",
     brand: "text-brand-hi",
     pin: "text-signal-pin",
   };

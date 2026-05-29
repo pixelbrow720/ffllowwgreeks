@@ -38,9 +38,9 @@ export function DashboardPreview() {
             {/* Mock window chrome */}
             <div className="flex items-center justify-between border-b border-line bg-bg-subtle/40 px-4 py-2.5">
               <div className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-signal-down/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-signal-warn/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-signal-up/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-accent-short/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-accent-warn/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-accent-long/70" />
               </div>
               <div className="font-mono text-[11px] text-ink-faint">
                 flowgreeks.app/dashboard — SPX · 0DTE · live
@@ -112,8 +112,8 @@ function FakePanel({
   badges?: Badge[];
 }) {
   const toneCls: Record<Badge["tone"], string> = {
-    up: "border-signal-up/30 text-signal-up bg-signal-up/10",
-    down: "border-signal-down/30 text-signal-down bg-signal-down/10",
+    up: "border-accent-long/30 text-accent-long bg-accent-long/10",
+    down: "border-accent-short/30 text-accent-short bg-accent-short/10",
     brand: "border-brand/40 text-brand-hi bg-brand-dim",
   };
   return (
@@ -227,7 +227,7 @@ function FakePanel({
               <div key={l as string} className={`flex items-center gap-2 rounded px-2 py-1 ${t === "now" ? "bg-brand-dim" : ""}`}>
                 <span className="text-[9px] uppercase tracking-wider text-ink-faint w-16">{l}</span>
                 <span className="tabnum text-ink-high flex-1">{p}</span>
-                <span className={`tabnum text-[10px] ${t === "up" ? "text-signal-up" : t === "down" ? "text-signal-down" : "text-ink-faint"}`}>{d}</span>
+                <span className={`tabnum text-[10px] ${t === "up" ? "text-accent-long" : t === "down" ? "text-accent-short" : "text-ink-faint"}`}>{d}</span>
               </div>
             ))}
           </div>
@@ -243,11 +243,11 @@ function FakePanel({
             ].map((r, i) => (
               <div key={i} className="grid grid-cols-[64px_36px_56px_56px_64px_44px_60px] gap-x-3 text-[11px]">
                 <span className="text-ink-faint tabnum">{r[0]}</span>
-                <span className={r[1] === "C" ? "text-signal-up" : "text-signal-down"}>{r[1]}</span>
+                <span className={r[1] === "C" ? "text-accent-long" : "text-accent-short"}>{r[1]}</span>
                 <span className="tabnum text-ink-high">{r[2]}</span>
                 <span className="tabnum text-ink-base">{r[3]}</span>
                 <span className="tabnum text-ink-high">{r[4]}</span>
-                <span className={r[5] === "BUY" ? "text-signal-up" : "text-signal-down"}>{r[5]}</span>
+                <span className={r[5] === "BUY" ? "text-accent-long" : "text-accent-short"}>{r[5]}</span>
                 <span className="text-brand-hi">{r[6]}</span>
               </div>
             ))}

@@ -23,7 +23,7 @@ export function fmtPct(n: number, digits = 1) {
 }
 
 export function signColor(n: number) {
-  if (n > 0) return "text-signal-up";
-  if (n < 0) return "text-signal-down";
+  if (n > 0) return "text-accent-long";
+  if (n < 0) return "text-accent-short";
   return "text-ink-muted";
 }
