@@ -1,0 +1,28 @@
+﻿                           Table "public.ticks"
+    Column     |           Type           | Collation | Nullable | Default 
+---------------+--------------------------+-----------+----------+---------
+ ts            | timestamp with time zone |           | not null | 
+ recv_ts       | timestamp with time zone |           | not null | 
+ symbol        | smallint                 |           | not null | 
+ expiry        | date                     |           |          | 
+ strike        | integer                  |           |          | 
+ side          | smallint                 |           |          | 
+ tick_type     | smallint                 |           | not null | 
+ price         | double precision         |           |          | 
+ size          | integer                  |           |          | 
+ bid           | double precision         |           |          | 
+ ask           | double precision         |           |          | 
+ bid_size      | integer                  |           |          | 
+ ask_size      | integer                  |           |          | 
+ open_interest | integer                  |           |          | 
+ aggressor     | smallint                 |           |          | 
+ exchange      | smallint                 |           |          | 
+ instrument_id | bigint                   |           |          | 
+Indexes:
+    "idx_ticks_strike" btree (symbol, expiry, strike, side, ts DESC)
+    "idx_ticks_symbol_ts" btree (symbol, ts DESC)
+    "ticks_ts_idx" btree (ts DESC)
+Triggers:
+    ts_insert_blocker BEFORE INSERT ON ticks FOR EACH ROW EXECUTE FUNCTION _timescaledb_functions.insert_blocker()
+Number of child tables: 27 (Use \d+ to list them.)
+
