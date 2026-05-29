@@ -9,7 +9,11 @@ import { useLiveSocket } from "../ws/useLiveSocket";
 import type { Channel } from "../ws/client";
 import type { Symbol } from "./types";
 
-// ---------- spot history ----------
+// useSyncExternalStore's third arg (the SSR snapshot) MUST return a
+// stable reference — returning `[]` inline creates a fresh array on
+// every read, which React detects as a state change and triggers an
+// infinite re-render. Module-level frozen empties give us reference
+// equality across the lifetime of the page.
 
 export interface SpotPoint {
   ts_ns: number;
@@ -17,7 +21,24 @@ export interface SpotPoint {
   spot: number;
 }
 
+const EMPTY_SPOT_SERIES: ReadonlyArray<SpotPoint> = Object.freeze([]);
+
 const SPOT_MAX = 120;
+
+// RTH-only filter. User asked the dashboard to drop pre-RTH samples so
+// the chart only shows the regular session. SPX cash opens 09:30 ET; in
+// Feb 2026 (EST) that maps to 14:30 UTC. The operator asked for 20:30
+// WIB (= 13:30 UTC) as their cutoff — keep 13:30 UTC here. Both
+// timestamps are below the OI seed at 11:30 UTC, so the backend still
+// gets a full position seed; only the front-end chart hides the early
+// noise.
+const RTH_START_MIN_UTC = 13 * 60 + 30;
+
+function isInRTH(tsNs: number): boolean {
+  const d = new Date(Math.floor(tsNs / 1e6));
+  const minOfDay = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return minOfDay >= RTH_START_MIN_UTC;
+}
 
 interface SpotEntry {
   series: SpotPoint[];
@@ -37,15 +58,18 @@ function ensureSpot(symbol: Symbol): SpotEntry {
 
 function pushSpot(symbol: Symbol, ts_ns: number, spot: number) {
   if (!Number.isFinite(spot) || spot <= 0) return;
+  if (!isInRTH(ts_ns)) return;
   const e = ensureSpot(symbol);
   const last = e.series[e.series.length - 1];
   // De-dupe ts (compute publishes every second; only keep the latest
-  // sample inside the same minute to keep the chart legible).
+  // sample inside the same minute to keep the chart legible). React's
+  // strict-mode and any object the snapshot store may have shipped to
+  // a memo'd consumer can be frozen, so we always replace by allocating
+  // a fresh point rather than mutating in place.
   const date = new Date(Math.floor(ts_ns / 1e6));
   const t = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   if (last && last.t === t) {
-    last.ts_ns = ts_ns;
-    last.spot = spot;
+    e.series = [...e.series.slice(0, -1), { ts_ns, t, spot }];
   } else {
     e.series = [...e.series, { ts_ns, t, spot }];
     if (e.series.length > SPOT_MAX) e.series = e.series.slice(-SPOT_MAX);
@@ -72,7 +96,7 @@ export function useSpotHistory(symbol: Symbol): SpotPoint[] {
       };
     },
     () => ensureSpot(symbol).series,
-    () => [],
+    () => EMPTY_SPOT_SERIES as SpotPoint[],
   );
 }
 
@@ -98,6 +122,8 @@ export interface AlertEntry {
   severity: AlertSeverity;
   symbol: Symbol;
 }
+
+const EMPTY_ALERT_LOG: ReadonlyArray<AlertEntry> = Object.freeze([]);
 
 interface RawTrigger {
   rule_id?: string;
@@ -177,6 +203,6 @@ export function useAlertLog(symbol: Symbol): AlertEntry[] {
       };
     },
     () => ensureAlerts(symbol).log,
-    () => [],
+    () => EMPTY_ALERT_LOG as AlertEntry[],
   );
 }

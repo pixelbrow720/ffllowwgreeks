@@ -113,6 +113,23 @@ func main() {
 	r.Use(api.BodyLimit)
 	r.Use(api.MetricsMiddleware)
 
+	// API-key auth setup. Returns the configured middleware (or nil
+	// when no Postgres pool is available — protected routes degrade
+	// to "open" in that case so dev still works without a database).
+	apiKeyMW, apiKeyLimiter, apiKeyAudit := setupAPIKey(rootCtx, cfg, log, sharedPool)
+
+	// Per-IP throttle at root scope, BEFORE auth. Caps bad-key floods
+	// and unrate-limited public endpoint hammering (snapshot, levels)
+	// so a single attacker can't saturate the pgxpool with failing
+	// LookupByHash calls or DoS the public REST surface. Per-key tier
+	// limits still apply on top inside the protected router.
+	//
+	// MUST be registered before any r.Get/r.Method below — chi panics
+	// with "all middlewares must be defined before routes" otherwise.
+	if apiKeyLimiter != nil {
+		r.Use(apiKeyLimiter.IPMiddleware(30, 60))
+	}
+
 	r.Get("/health", healthHandler)
 	r.Get("/health/live", healthHandler)
 	var draining atomic.Bool
@@ -134,20 +151,6 @@ func main() {
 				_ = metricsSrv.Shutdown(ctx)
 			}
 		}()
-	}
-
-	// API-key auth setup. Returns the configured middleware (or nil
-	// when no Postgres pool is available — protected routes degrade
-	// to "open" in that case so dev still works without a database).
-	apiKeyMW, apiKeyLimiter, apiKeyAudit := setupAPIKey(rootCtx, cfg, log, sharedPool)
-
-	// Per-IP throttle at root scope, BEFORE auth. Caps bad-key floods
-	// and unrate-limited public endpoint hammering (snapshot, levels)
-	// so a single attacker can't saturate the pgxpool with failing
-	// LookupByHash calls or DoS the public REST surface. Per-key tier
-	// limits still apply on top inside the protected router.
-	if apiKeyLimiter != nil {
-		r.Use(apiKeyLimiter.IPMiddleware(30, 60))
 	}
 
 	handlers := &api.Handlers{Cache: cache, Broker: broker}
