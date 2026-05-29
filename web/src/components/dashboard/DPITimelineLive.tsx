@@ -8,7 +8,6 @@ import type { Channel } from "@/lib/ws/client";
 import {
   ResponsiveContainer,
   Area,
-  Line,
   XAxis,
   YAxis,
   ReferenceLine,
@@ -17,26 +16,57 @@ import {
   ComposedChart,
 } from "recharts";
 import { useSnapshot } from "@/lib/api/snapshot";
+import { getHistory } from "@/lib/api/client";
+import type { Symbol as Sym } from "@/lib/api/types";
 
 interface Sample {
   ts_ns: number;
   t: string;
   composite: number;
-  charm: number;
-  vanna: number;
-  gamma: number;
 }
 
-const MAX_SAMPLES = 240; // ~4h at 1Hz, 1 sample/min after dedupe
+const MAX_SAMPLES = 480; // 8h at 1 sample / minute
 
-// DPITimelineLive — composite + 3 components, sampled once per minute
-// from the live WS stream. Monochrome scaffold; only the composite line
-// uses ink-high. Components are ink-faint dashed lines.
-export function DPITimelineLive({ symbol }: { symbol: "SPX" | "NDX" }) {
+// DPITimelineLive — composite DPI timeline. Backfills from /api/history
+// on mount so a fresh page-load shows the morning DPI track instead of
+// rendering a single dot at the current minute. After backfill, live WS
+// deltas are throttled to one bucket per minute via lastBucket dedupe.
+export function DPITimelineLive({ symbol }: { symbol: Sym }) {
   const { snapshot } = useSnapshot(symbol);
   const sock = useLiveSocket();
   const [series, setSeries] = useState<Sample[]>([]);
   const lastBucket = useRef<string>("");
+  const backfilled = useRef<Sym | "">("");
+
+  useEffect(() => {
+    if (backfilled.current === symbol) return;
+    backfilled.current = symbol;
+    const to = new Date();
+    const from = new Date(to.getTime() - 8 * 60 * 60 * 1000);
+    void getHistory(symbol, { from, to, max: 480 }).then((resp) => {
+      const samples: Sample[] = [];
+      const seen = new Set<string>();
+      for (const s of resp.samples) {
+        if (s.spot < 1000) continue;
+        const date = new Date(Math.floor(s.ts_ns / 1e6));
+        const minOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
+        if (minOfDay < 13 * 60 + 30) continue; // 20:30 WIB onward
+        const t = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+        if (seen.has(t)) {
+          samples[samples.length - 1] = { ts_ns: s.ts_ns, t, composite: s.dpi };
+        } else {
+          seen.add(t);
+          samples.push({ ts_ns: s.ts_ns, t, composite: s.dpi });
+        }
+      }
+      setSeries(samples);
+      lastBucket.current = samples[samples.length - 1]?.t ?? "";
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn("[flowgreeks] dpi timeline backfill failed", err);
+      backfilled.current = "";
+    });
+  }, [symbol]);
 
   useEffect(() => {
     if (!sock) return;
@@ -50,9 +80,6 @@ export function DPITimelineLive({ symbol }: { symbol: "SPX" | "NDX" }) {
         ts_ns: s.ts_ns,
         t,
         composite: s.dpi.composite,
-        charm: s.dpi.charm_velocity * 100,
-        vanna: s.dpi.vanna_sensitivity * 100,
-        gamma: Math.abs(s.dpi.net_gamma_sign) * 100,
       };
       setSeries((prev) => {
         if (lastBucket.current === t && prev.length > 0) {
@@ -67,23 +94,17 @@ export function DPITimelineLive({ symbol }: { symbol: "SPX" | "NDX" }) {
     });
   }, [sock, symbol]);
 
-  useEffect(() => {
-    setSeries([]);
-    lastBucket.current = "";
-  }, [symbol]);
-
   const composite = snapshot?.dpi.composite ?? 0;
 
   return (
     <Panel
       title="DPI Timeline"
-      subtitle={`${symbol} · composite + components · 1m bucket`}
+      subtitle={`${symbol} · composite · 1m bucket · ${series.length} samples`}
       actions={
         <div className="flex items-center gap-3 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">
           <Legend swatch="bg-ink-high" label="Composite" />
-          <Legend swatch="bg-ink-muted" label="Charm" />
-          <Legend swatch="bg-ink-muted" label="Vanna" label2="dashed" />
-          <Legend swatch="bg-ink-muted" label="\u03B3 sign" label2="dotted" />
+          <span>50 ELEVATED</span>
+          <span className="text-accent-warn">75 FORCED</span>
           <span className="tabnum text-ink-base">
             now {composite.toFixed(1)}
           </span>
@@ -182,35 +203,6 @@ function ChartBody({ series }: { series: Sample[] }) {
               name="Composite"
               isAnimationActive={false}
             />
-            <Line
-              type="monotone"
-              dataKey="charm"
-              stroke="#a1a1aa"
-              strokeWidth={1.25}
-              dot={false}
-              name="Charm \u00D7100"
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="vanna"
-              stroke="#71717a"
-              strokeWidth={1.25}
-              strokeDasharray="3 3"
-              dot={false}
-              name="Vanna \u00D7100"
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="gamma"
-              stroke="#52525b"
-              strokeWidth={1.25}
-              strokeDasharray="1 3"
-              dot={false}
-              name="\u03B3 sign \u00D7100"
-              isAnimationActive={false}
-            />
           </ComposedChart>
         </ResponsiveContainer>
       ) : null}
@@ -218,85 +210,43 @@ function ChartBody({ series }: { series: Sample[] }) {
   );
 }
 
-function Legend({
-  swatch,
-  label,
-  label2,
-}: {
-  swatch: string;
-  label: string;
-  label2?: string;
-}) {
+function Legend({ swatch, label }: { swatch: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className={`h-1 w-3 ${swatch}`} />
       {label}
-      {label2 && <span className="text-ink-ghost">·{label2}</span>}
     </span>
   );
 }
 
-// Empty — brand-themed empty state. Shows a horizontal trace with
-// pulsing brand-pink dots, plus a 50/75 reference grid that previews the
-// real timeline. Replaces the prior generic prose.
+// Empty — monochrome empty state. Brand pink ambient was confusing the
+// auditor as a data-color violation; removed in favour of a flat
+// monochrome scaffold per the discipline rule.
 function Empty() {
   return (
     <div className="relative flex h-full min-h-[160px] flex-col items-center justify-center overflow-hidden">
       <svg
         viewBox="0 0 400 120"
-        className="absolute inset-0 m-auto h-full w-full opacity-70"
-        preserveAspectRatio="xMidYMid meet"
+        className="absolute inset-0 m-auto h-full w-full opacity-60"
+        preserveAspectRatio="none"
       >
-        <defs>
-          <linearGradient id="emptyTimelineFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#ff2a5b" stopOpacity="0.10" />
-            <stop offset="100%" stopColor="#ff2a5b" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {/* reference grid */}
         <line x1="20" y1="30" x2="380" y2="30" stroke="#26262a" strokeOpacity="0.6" strokeDasharray="2 4" />
         <line x1="20" y1="60" x2="380" y2="60" stroke="#26262a" strokeOpacity="0.6" strokeDasharray="2 4" />
         <line x1="20" y1="90" x2="380" y2="90" stroke="#26262a" strokeOpacity="0.6" strokeDasharray="2 4" />
         <text x="384" y="32" fontSize="8" fill="#52525b" fontFamily="var(--font-jb-mono)">75</text>
         <text x="384" y="62" fontSize="8" fill="#52525b" fontFamily="var(--font-jb-mono)">50</text>
         <text x="384" y="92" fontSize="8" fill="#52525b" fontFamily="var(--font-jb-mono)">25</text>
-        {/* dotted preview path */}
-        <path
-          d="M20 70 Q120 50 200 60 T380 45"
-          stroke="#ff2a5b"
-          strokeOpacity="0.35"
-          strokeWidth="1"
-          strokeDasharray="3 6"
-          fill="none"
-        />
-        <path
-          d="M20 70 Q120 50 200 60 T380 45 L380 110 L20 110 Z"
-          fill="url(#emptyTimelineFill)"
-        />
-        {/* pulsing dots along the trace */}
-        {[60, 140, 220, 300].map((x, i) => (
-          <circle
-            key={x}
-            cx={x}
-            cy={68 - i * 4}
-            r="2"
-            fill="#ff2a5b"
-            opacity="0.6"
-            className="animate-pulse-slow"
-            style={{ animationDelay: `${i * 0.4}s` }}
-          />
-        ))}
       </svg>
 
       <div className="relative z-10 flex flex-col items-center gap-1 text-center">
-        <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-brand-hi">
+        <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-ink-faint">
           / DPI timeline
         </span>
         <span className="font-display text-[16px] font-medium tracking-tight text-ink-high">
-          accumulating buckets
+          loading session
         </span>
         <span className="text-[10.5px] text-ink-faint">
-          One sample per minute. The trace appears once the first bucket settles.
+          Backfilling DPI samples from the history endpoint.
         </span>
       </div>
     </div>

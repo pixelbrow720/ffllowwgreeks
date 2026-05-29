@@ -15,8 +15,15 @@ interface DerivedLevel {
 }
 
 const TYPE_TONE: Record<LevelType, { dot: string; label: string }> = {
-  resistance: { dot: "bg-accent-long", label: "RES" },
-  support: { dot: "bg-accent-short", label: "SUP" },
+  // Resistance = price ceiling (call wall) — short-side concentration; render
+  // with the short accent so the dot color matches what dealers do at that
+  // level (sell into upside). Support = price floor (put wall) — long-side
+  // concentration — render with the long accent. This inverts the prior
+  // "green = positive" gut convention but matches the data semantics: the
+  // dot says "what kind of dealer pressure is at this strike", not "good
+  // news vs bad news".
+  resistance: { dot: "bg-accent-short", label: "RES" },
+  support: { dot: "bg-accent-long", label: "SUP" },
   flip: { dot: "bg-ink-muted", label: "FLIP" },
   pin: { dot: "bg-accent-warn", label: "PIN" },
   spot: { dot: "bg-ink-high", label: "NOW" },
@@ -58,7 +65,7 @@ export function KeyLevels({ symbol }: { symbol: "SPX" | "NDX" }) {
             <div
               key={`${lvl.label}-${i}`}
               className={cn(
-                "grid grid-cols-[10px_36px_1fr_56px_56px] items-center gap-2 border-b border-line/40 px-3 py-1.5",
+                "grid grid-cols-[10px_36px_1fr_64px_60px] items-center gap-2 border-b border-line/40 pl-3 pr-2.5 py-1.5",
                 isSpot && "bg-bg-card",
               )}
             >

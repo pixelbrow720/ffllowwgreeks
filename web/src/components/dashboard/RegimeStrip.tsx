@@ -216,7 +216,9 @@ export function RegimeStrip({
         <Field label="Pin">
           <Mono accent={(snapshot?.pin.top_probability ?? 0) >= 0.6 ? "warn" : "default"}>
             {ready
-              ? `${snapshot?.pin.top_strike ?? 0} · ${((snapshot?.pin.top_probability ?? 0) * 100).toFixed(0)}%`
+              ? snapshot?.pin.active && (snapshot.pin.top_strike ?? 0) > 0
+                ? `${snapshot.pin.top_strike} · ${(snapshot.pin.top_probability * 100).toFixed(0)}%`
+                : "—"
               : "—"}
           </Mono>
         </Field>

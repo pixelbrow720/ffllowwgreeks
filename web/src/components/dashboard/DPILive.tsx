@@ -2,7 +2,7 @@
 
 import { Panel, Pill } from "@/components/primitives/Panel";
 import { useSnapshot } from "@/lib/api/snapshot";
-import { cn, fmtSignedAbbr } from "@/lib/utils";
+import { cn, fmtRate, fmtSignedAbbr } from "@/lib/utils";
 import type { Snapshot } from "@/lib/api/types";
 
 // DPILive — left-rail composite + 5-component breakdown. The DPI
@@ -25,7 +25,7 @@ export function DPILive({ symbol }: { symbol: "SPX" | "NDX" }) {
       subtitle="Dealer Positioning Index"
       tone={focal ? "glass-brand" : "default"}
       actions={<ZoneBadge snapshot={snapshot} />}
-      contentClassName="p-3 flex flex-col gap-3.5"
+      contentClassName="p-3 flex flex-col gap-2 overflow-hidden"
     >
       {snapshot ? <Body snapshot={snapshot} /> : <Placeholder status={status} message={error?.message} />}
     </Panel>
@@ -61,13 +61,13 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
   return (
     <>
       {/* hero composite — 64px font-display */}
-      <div className="relative flex items-baseline gap-3 pt-1">
+      <div className="relative flex shrink-0 items-baseline gap-3 pt-0.5">
         {focal && (
           <div className="pointer-events-none absolute -inset-x-2 -inset-y-1 -z-10 rounded-md bg-gradient-to-br from-brand/20 via-transparent to-transparent blur-2xl" />
         )}
         <span
           className={cn(
-            "font-display tabnum text-[58px] font-medium leading-[0.92] tracking-[-0.03em]",
+            "font-display tabnum text-[48px] font-medium leading-[0.92] tracking-[-0.03em]",
             focal ? "text-gradient-brand" : "text-ink-high",
           )}
         >
@@ -162,7 +162,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
         <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">
           <span>Charm v</span>
           <span className="tabnum text-ink-base">
-            {snapshot.charm_velocity_raw.toFixed(4)}/min
+            {fmtRate(snapshot.charm_velocity_raw)}
           </span>
         </div>
         <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">

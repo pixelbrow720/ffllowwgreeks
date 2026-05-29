@@ -150,18 +150,6 @@ function ChartBody({
               formatter={(v) => (v as number).toFixed(2)}
             />
             <ReferenceLine
-              y={snapshot.call_wall}
-              stroke="#10b981"
-              strokeDasharray="4 4"
-              strokeOpacity={0.7}
-              label={{
-                value: `Call Wall ${snapshot.call_wall}`,
-                fill: "#10b981",
-                fontSize: 9,
-                position: "insideTopRight",
-              }}
-            />
-            <ReferenceLine
               y={snapshot.zero_gamma}
               stroke="#71717a"
               strokeDasharray="2 4"
@@ -173,18 +161,51 @@ function ChartBody({
                 position: "insideTopRight",
               }}
             />
-            <ReferenceLine
-              y={snapshot.put_wall}
-              stroke="#ef4444"
-              strokeDasharray="4 4"
-              strokeOpacity={0.7}
-              label={{
-                value: `Put Wall ${snapshot.put_wall}`,
-                fill: "#ef4444",
-                fontSize: 9,
-                position: "insideBottomRight",
-              }}
-            />
+            {/* Walls. When call_wall === put_wall (gamma concentrated at a
+                single round-number strike — common on OPEX days), render a
+                single neutral merged label so the two ink-only labels
+                don't sit on top of each other unreadable. */}
+            {snapshot.call_wall > 0 && snapshot.call_wall === snapshot.put_wall ? (
+              <ReferenceLine
+                y={snapshot.call_wall}
+                stroke="#a1a1aa"
+                strokeDasharray="4 4"
+                strokeOpacity={0.85}
+                label={{
+                  value: `Call/Put Wall ${snapshot.call_wall}`,
+                  fill: "#e4e4e7",
+                  fontSize: 9,
+                  position: "insideTopRight",
+                }}
+              />
+            ) : (
+              <>
+                <ReferenceLine
+                  y={snapshot.call_wall}
+                  stroke="#10b981"
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.7}
+                  label={{
+                    value: `Call Wall ${snapshot.call_wall}`,
+                    fill: "#10b981",
+                    fontSize: 9,
+                    position: "insideTopRight",
+                  }}
+                />
+                <ReferenceLine
+                  y={snapshot.put_wall}
+                  stroke="#ef4444"
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.7}
+                  label={{
+                    value: `Put Wall ${snapshot.put_wall}`,
+                    fill: "#ef4444",
+                    fontSize: 9,
+                    position: "insideBottomRight",
+                  }}
+                />
+              </>
+            )}
             {snapshot.pin.active && snapshot.pin.top_strike > 0 && (
               <ReferenceLine
                 y={snapshot.pin.top_strike}

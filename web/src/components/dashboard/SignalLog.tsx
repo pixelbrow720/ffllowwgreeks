@@ -3,7 +3,7 @@
 import { Panel, Pill } from "@/components/primitives/Panel";
 import { useAlertLog } from "@/lib/api/history";
 import { useSocketStatus } from "@/lib/ws/useLiveSocket";
-import { cn } from "@/lib/utils";
+import { cn, formatAlertMessage } from "@/lib/utils";
 
 const SEV_LABEL: Record<"crit" | "warn" | "info", string> = {
   crit: "CRIT",
@@ -71,7 +71,7 @@ export function SignalLog({ symbol }: { symbol: "SPX" | "NDX" }) {
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">
                 {a.kind}
               </span>
-              <span className="text-[11.5px] text-ink-base leading-relaxed">{a.message}</span>
+              <span className="text-[11.5px] text-ink-base leading-relaxed">{formatAlertMessage(a.message)}</span>
             </div>
           ))
         )}

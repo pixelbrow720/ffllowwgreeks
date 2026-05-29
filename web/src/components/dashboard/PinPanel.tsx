@@ -2,7 +2,7 @@
 
 import { Panel } from "@/components/primitives/Panel";
 import { useSnapshot } from "@/lib/api/snapshot";
-import { cn, fmtSignedAbbr } from "@/lib/utils";
+import { cn, fmtRate, fmtSignedAbbr } from "@/lib/utils";
 import type { Snapshot } from "@/lib/api/types";
 
 // PinPanel — right-rail strip. Pin candidate, expected move, charm zone.
@@ -35,12 +35,21 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
   const pinHot = pinProb >= 0.5 && snapshot.pin.active;
   const expectedMv = snapshot.expected_mv;
   const zone = snapshot.charm_zone;
+  // Zone color discipline:
+  //   PEAK  + PIN     → warn (the operator must act now)
+  //   FADING          → ink-muted (situation cooling, not an alarm)
+  //   RISING          → ink-base
+  //   WEAK / UNKNOWN  → ink-ghost
+  // Per CLAUDE.md, brand pink is decorative ambient ONLY — never on a
+  // data-state label like a charm zone.
   const zoneTone =
     zone === "PEAK" || zone === "PIN"
       ? "text-accent-warn"
-      : zone === "WEAK" || zone === "UNKNOWN"
+      : zone === "FADING"
         ? "text-ink-muted"
-        : "text-ink-base";
+        : zone === "RISING"
+          ? "text-ink-base"
+          : "text-ink-ghost";
   const charmVel = snapshot.charm_velocity_raw;
 
   return (
@@ -113,7 +122,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
             {zone === "UNKNOWN" ? "—" : zone}
           </span>
           <span className="tabnum text-[12px] text-ink-base">
-            {charmVel.toFixed(4)}/min
+            {fmtRate(charmVel)}
           </span>
         </div>
         <div className="mt-2 flex gap-px">
