@@ -7,6 +7,15 @@ global:
 rule_files:
   - /etc/prometheus/flowgreeks.rules.yml
 
+# Send alerts to Alertmanager. Compose runs Alertmanager under the
+# `obs` profile (also bundled into `app` and `demo`). When the alertmanager
+# service isn't reachable Prometheus continues evaluating rules — alerts
+# silently buffer until the dependency is back, no outage propagates.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: flowgreeks-api
     static_configs:
@@ -29,3 +38,13 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels: { service: alertmanager }
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+        labels: { service: loki }

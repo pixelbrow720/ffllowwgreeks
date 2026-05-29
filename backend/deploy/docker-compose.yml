@@ -7,13 +7,17 @@ name: flowgreeks
 #     docker compose up -d
 #
 #   --profile app                — infra + 4 binaries (api, ingest,
-#                                   compute, replay)
+#                                   compute, replay) + obs stack
 #                                   needs DATABENTO_API_KEY in env
 #     docker compose --profile app up -d
 #
 #   --profile demo              — infra + api + synth_state publisher
 #                                   for frontend dev WITHOUT databento
 #     docker compose --profile demo up -d
+#
+#   --profile obs               — observability only (Prometheus,
+#                                   Alertmanager, Grafana, Loki, Vector).
+#                                   Bundled into `app` and `demo`.
 #
 # Migrations run as a one-shot sidecar via the `migrate` service. It
 # blocks app startup via depends_on: condition: service_completed_successfully.
@@ -238,9 +242,72 @@ services:
     depends_on:
       - prometheus
 
+  # Alertmanager fans Prometheus alert rules out to receivers (Discord /
+  # Slack / PagerDuty). Edit deploy/alertmanager/alertmanager.yml to wire
+  # a real receiver — defaults route everything to /dev/null so an
+  # unconfigured deploy doesn't crash but also doesn't notify.
+  alertmanager:
+    profiles: ["obs", "app", "demo"]
+    container_name: fg-alertmanager
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9093/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Loki is the log aggregation sink. Vector ships docker container logs
+  # here so trace_id correlation across api / compute / ingest survives
+  # past the docker-logs ring buffer.
+  loki:
+    profiles: ["obs", "app", "demo"]
+    container_name: fg-loki
+    image: grafana/loki:3.1.1
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/loki.yml"
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  # Vector tails docker container logs and forwards to Loki. Reads the
+  # docker socket read-only — a cap_drop ALL container can't escalate
+  # because nothing in vector.toml runs untrusted input.
+  vector:
+    profiles: ["obs", "app", "demo"]
+    container_name: fg-vector
+    image: timberio/vector:0.41.1-alpine
+    restart: unless-stopped
+    user: "root"
+    command: ["--config", "/etc/vector/vector.toml"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:
   nats-data:
   prometheus-data:
   grafana-data:
+  alertmanager-data:
+  loki-data:

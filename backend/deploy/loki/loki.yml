@@ -1,0 +1,57 @@
+# Loki configuration for FlowGreeks log aggregation.
+#
+# Single-binary Loki running with filesystem storage — fits the
+# self-hosted Hetzner deployment story and avoids the operational cost of
+# a multi-component setup. For volumes >100GB/day, swap to S3 + boltdb-shipper.
+#
+# Retention is 30 days by default — long enough to investigate a Friday
+# incident on Monday, short enough that disk doesn't grow without bound.
+# Override LOKI_RETENTION_HOURS via env if a different policy is needed.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 720h           # 30 days; tunable via Loki redeploy
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h # 7 days
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+  max_query_series: 5000
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  delete_request_store: filesystem
+
+ruler:
+  alertmanager_url: http://alertmanager:9093

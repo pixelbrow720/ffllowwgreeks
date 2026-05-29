@@ -1,0 +1,100 @@
+# Alertmanager configuration for FlowGreeks.
+#
+# Routes Prometheus alert rules (deploy/prometheus/flowgreeks.rules.yml)
+# to receivers. Two routing classes:
+#
+#   severity: page  → on-call channel, deduplicated, repeat every 4h
+#   severity: warn  → diagnostic channel, deduplicated, no repeat
+#
+# Bring up with `--profile obs` (or `app` / `demo`); compose mounts this
+# file at /etc/alertmanager/alertmanager.yml.
+#
+# OPERATOR ACTION REQUIRED — configure at least one receiver below before
+# relying on alerting in production. The defaults route every alert to a
+# `null` receiver so unconfigured deploys are silent rather than crashing.
+# Pick whichever channel the team uses:
+#
+#   - Discord webhook  → uncomment `discord-page` block, set url
+#   - Slack webhook    → uncomment `slack-page` block, set url
+#   - Telegram bot     → uncomment `telegram-page` block, set bot_token + chat_id
+#   - Email            → uncomment `email-page` block, set smtp_* + to
+#   - PagerDuty        → uncomment `pagerduty-page` block, set service_key
+#
+# Then change `receiver: null` under `route:` to point at the configured
+# receiver (e.g. `receiver: discord-page`).
+
+global:
+  resolve_timeout: 5m
+  # smtp_smarthost: 'smtp.example.com:587'
+  # smtp_from: 'flowgreeks-alerts@flowjob.id'
+  # smtp_auth_username: 'flowgreeks-alerts@flowjob.id'
+  # smtp_auth_password: '${SMTP_PASSWORD}'
+
+route:
+  receiver: 'null'
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    - match:
+        severity: page
+      receiver: 'null'
+      continue: false
+      repeat_interval: 4h
+
+    - match:
+        severity: warn
+      receiver: 'null'
+      continue: false
+      repeat_interval: 24h
+
+inhibit_rules:
+  # When the api binary is fully down, suppress every downstream alert
+  # that's just a symptom (high error rate, ws drops, archive lag).
+  - source_matchers:
+      - alertname="ComputeTicksStalled"
+    target_matchers:
+      - severity="warn"
+    equal: ['service']
+
+receivers:
+  - name: 'null'
+
+  # ── Configure ONE of the receivers below and point `route:` at it. ──
+
+  # - name: 'discord-page'
+  #   webhook_configs:
+  #     - url: 'https://discord.com/api/webhooks/REPLACE_WITH_DISCORD_WEBHOOK'
+  #       send_resolved: true
+  #       max_alerts: 10
+
+  # - name: 'slack-page'
+  #   slack_configs:
+  #     - api_url: 'https://hooks.slack.com/services/REPLACE_WITH_SLACK_WEBHOOK'
+  #       channel: '#flowgreeks-oncall'
+  #       send_resolved: true
+  #       title: '{{ .Status | toUpper }} {{ .CommonLabels.severity | toUpper }} — {{ .GroupLabels.alertname }}'
+  #       text: |
+  #         {{ range .Alerts }}*{{ .Labels.alertname }}* (service={{ .Labels.service }})
+  #         {{ .Annotations.summary }}
+  #         {{ .Annotations.description }}
+  #         {{ end }}
+
+  # - name: 'telegram-page'
+  #   telegram_configs:
+  #     - bot_token: 'REPLACE_WITH_BOT_TOKEN'
+  #       chat_id: 0
+  #       parse_mode: 'HTML'
+  #       send_resolved: true
+
+  # - name: 'email-page'
+  #   email_configs:
+  #     - to: 'oncall@flowjob.id'
+  #       send_resolved: true
+
+  # - name: 'pagerduty-page'
+  #   pagerduty_configs:
+  #     - service_key: 'REPLACE_WITH_PAGERDUTY_INTEGRATION_KEY'
+  #       send_resolved: true

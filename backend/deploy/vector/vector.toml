@@ -1,0 +1,58 @@
+# Vector ships docker container logs to Loki so trace_id correlation
+# survives across binaries.
+#
+# FlowGreeks emits structured JSON via slog (LOG_FORMAT=json) — Vector
+# parses that and forwards to Loki with `service`, `level`, `trace_id`,
+# `req_id` as labels.
+#
+# Lower-cardinality labels only (service + level). High-cardinality
+# fields like trace_id stay in the log body — Loki indexes them by content,
+# not as labels, so cardinality doesn't explode.
+
+[api]
+timezone = "UTC"
+
+# ── Sources ──────────────────────────────────────────────────────────
+
+[sources.docker]
+type = "docker_logs"
+include_containers = ["fg-api", "fg-ingest", "fg-compute", "fg-replay"]
+
+# ── Transforms ───────────────────────────────────────────────────────
+
+[transforms.parse]
+type = "remap"
+inputs = ["docker"]
+source = '''
+# Try to parse the message as JSON (slog json handler). If it fails,
+# leave the line as plain text — useful for stack traces and panics.
+parsed, err = parse_json(.message)
+if err == null && is_object(parsed) {
+  .json = parsed
+  .level = string!(parsed.level || "info")
+  .service = string!(parsed.service || .container_name || "unknown")
+  .trace_id = string!(parsed.trace_id || "")
+  .req_id = string!(parsed.req_id || "")
+  if exists(parsed.msg) {
+    .message = string!(parsed.msg)
+  }
+} else {
+  .level = "info"
+  .service = string!(.container_name || "unknown")
+}
+.service = downcase(replace(.service, "fg-", ""))
+'''
+
+# ── Sinks ────────────────────────────────────────────────────────────
+
+[sinks.loki]
+type = "loki"
+inputs = ["parse"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+labels.service = "{{ service }}"
+labels.level = "{{ level }}"
+remove_label_fields = true
+out_of_order_action = "rewrite_timestamp"
+batch.max_bytes = 1_048_576       # 1 MiB
+batch.timeout_secs = 1
