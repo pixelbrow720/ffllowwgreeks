@@ -2,7 +2,7 @@ package dealer
 
 import (
 	"math"
-	"sort"
+	"slices"
 
 	"flowgreeks/internal/feed"
 )
@@ -81,7 +81,20 @@ func Aggregate(rows []StrikeRow, spot float64) AggregateView {
 		view.ExpectedMv = atmIV * math.Sqrt(1.0/daysPerYear) * 100
 	}
 
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Strike < rows[j].Strike })
+	// slices.SortFunc dispatches to a typed pdqsort over StrikeRow without
+	// the closure escape sort.Slice paid (3 allocs/op on bench). Stays
+	// zero-alloc on the hot path so Aggregate can hold the "zero allocs"
+	// claim alongside BS / Greeks / IV.
+	slices.SortFunc(rows, func(a, b StrikeRow) int {
+		switch {
+		case a.Strike < b.Strike:
+			return -1
+		case a.Strike > b.Strike:
+			return 1
+		default:
+			return 0
+		}
+	})
 
 	var (
 		cumulative     float64
