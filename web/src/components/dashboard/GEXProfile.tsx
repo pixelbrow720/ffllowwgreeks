@@ -7,131 +7,117 @@ import { fmtSignedAbbr } from "@/lib/utils";
 import { StrikeTooltip } from "@/components/primitives/StrikeTooltip";
 import type { StrikeRow as ApiStrikeRow } from "@/lib/api/types";
 
-interface Row {
+// VISIBLE_ROWS sized so the strike-ladder fills its 720px panel slot
+// edge-to-edge without scroll. Picked symmetrically around spot —
+// HALF rows above + ATM + HALF rows below — so the operator always
+// sees the band that matters and the panel never has dead space.
+const VISIBLE_ROWS = 23; // 11 above + 1 ATM + 11 below
+
+interface AggRow {
   strike: number;
+  gexM: number;
+  gexUsd: number;
   side: "C" | "P";
-  gexM: number; // GEX in $M
-  gexUsd: number; // GEX in raw $
   isCallWall: boolean;
   isPutWall: boolean;
   isPin: boolean;
   callRow?: ApiStrikeRow;
   putRow?: ApiStrikeRow;
-  // amplifyTier — 0 = far, 1 = near (within ±0.5%), 2 = at-the-money row
-  amplifyTier: 0 | 1 | 2;
+  // Distance bucket — 0 = >0.5%, 1 = within 0.5%, 2 = ATM (within 0.15%)
+  distBucket: 0 | 1 | 2;
 }
 
 export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
-  const [hover, setHover] = useState<{ strike: number; y: number } | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
   const { snapshot, status, error } = useSnapshot(symbol);
 
   if (!snapshot) {
     return (
-      <Panel title="GEX by Strike" subtitle="Dealer gamma per strike ($M notional)">
+      <Panel
+        title="GEX by Strike"
+        subtitle="Dealer gamma per strike ($M notional)"
+        contentClassName="p-0 flex flex-col min-h-0"
+      >
         <ProfilePlaceholder status={status} message={error?.message} />
       </Panel>
     );
   }
 
-  // Aggregate strike → net GEX (sum across sides), keep dominant side label,
-  // and retain the original wire rows so the tooltip can decompose by leg.
+  // Aggregate strike → net GEX, retain per-side wire rows for the
+  // tooltip decomposition.
   const map = new Map<
     number,
-    {
-      net: number;
-      netUsd: number;
-      bySide: { C: number; P: number };
-      callRow?: ApiStrikeRow;
-      putRow?: ApiStrikeRow;
-    }
+    { net: number; netUsd: number; bySide: { C: number; P: number }; callRow?: ApiStrikeRow; putRow?: ApiStrikeRow }
   >();
-  snapshot.strikes.forEach((s) => {
-    const cur = map.get(s.strike) ?? {
-      net: 0,
-      netUsd: 0,
-      bySide: { C: 0, P: 0 },
-    };
+  for (const s of snapshot.strikes) {
+    const cur = map.get(s.strike) ?? { net: 0, netUsd: 0, bySide: { C: 0, P: 0 } };
     cur.net += s.gex_notional / 1e6;
     cur.netUsd += s.gex_notional;
     cur.bySide[s.side] += s.gex_notional / 1e6;
     if (s.side === "C") cur.callRow = s;
     else cur.putRow = s;
     map.set(s.strike, cur);
-  });
+  }
 
   const spot = snapshot.spot;
-  const rows: Row[] = Array.from(map.entries())
-    .map(([strike, v]) => {
-      const distPct = spot > 0 ? Math.abs(strike - spot) / spot : 1;
-      const amplifyTier: 0 | 1 | 2 =
-        distPct < 0.0015 ? 2 : distPct < 0.005 ? 1 : 0;
-      return {
-        strike,
-        side: (v.bySide.C < v.bySide.P ? "P" : "C") as "C" | "P",
-        gexM: v.net,
-        gexUsd: v.netUsd,
-        isCallWall: strike === snapshot.call_wall,
-        isPutWall: strike === snapshot.put_wall,
-        isPin: snapshot.pin.active && strike === snapshot.pin.top_strike,
-        callRow: v.callRow,
-        putRow: v.putRow,
-        amplifyTier,
-      };
-    })
-    .sort((a, b) => b.strike - a.strike);
+  const all: AggRow[] = Array.from(map.entries()).map(([strike, v]) => {
+    const distPct = spot > 0 ? Math.abs(strike - spot) / spot : 1;
+    const distBucket: 0 | 1 | 2 = distPct < 0.0015 ? 2 : distPct < 0.005 ? 1 : 0;
+    return {
+      strike,
+      gexM: v.net,
+      gexUsd: v.netUsd,
+      side: (v.bySide.C < v.bySide.P ? "P" : "C") as "C" | "P",
+      isCallWall: strike === snapshot.call_wall,
+      isPutWall: strike === snapshot.put_wall,
+      isPin: snapshot.pin.active && strike === snapshot.pin.top_strike,
+      callRow: v.callRow,
+      putRow: v.putRow,
+      distBucket,
+    };
+  });
 
-  if (rows.length === 0) {
+  if (all.length === 0) {
     return (
-      <Panel title="GEX by Strike" subtitle="Dealer gamma per strike ($M notional)">
-        <ProfilePlaceholder status="ready" empty message="snapshot has no strikes yet" />
+      <Panel
+        title="GEX by Strike"
+        subtitle="Dealer gamma per strike ($M notional)"
+        contentClassName="p-0 flex flex-col min-h-0"
+      >
+        <ProfilePlaceholder status="ready" empty message="snapshot has no strikes" />
       </Panel>
     );
   }
 
-  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.gexM))) || 1;
-
-  // SVG layout. Variable row height per amplifyTier:
-  // tier 2 (ATM) = 26, tier 1 (near spot) = 24, tier 0 = 20.
-  const W = 720;
-  const PAD = { l: 64, r: 80, t: 14, b: 22 };
-
-  let runningY = PAD.t;
-  const rowsWithY = rows.map((r) => {
-    const h = r.amplifyTier === 2 ? 26 : r.amplifyTier === 1 ? 24 : 20;
-    const y = runningY;
-    runningY += h;
-    return { ...r, y, h };
-  });
-  const H = runningY + PAD.b;
-  const plotW = W - PAD.l - PAD.r;
-  const center = PAD.l + plotW / 2;
-
-  const xOf = (gexM: number) => center + (gexM / maxAbs) * (plotW / 2);
-
-  // Find virtual y of spot between two adjacent strikes.
-  const sortedAsc = [...rowsWithY].sort((a, b) => a.strike - b.strike);
-  let spotY = PAD.t;
-  for (let i = 0; i < sortedAsc.length - 1; i++) {
-    const lo = sortedAsc[i];
-    const hi = sortedAsc[i + 1];
-    if (spot >= lo.strike && spot <= hi.strike) {
-      const t = (spot - lo.strike) / (hi.strike - lo.strike);
-      const yLo = lo.y + lo.h / 2;
-      const yHi = hi.y + hi.h / 2;
-      spotY = yLo + (yHi - yLo) * t;
-      break;
-    }
-  }
-
-  // Tooltip positioning — anchor to right of the visible bar area.
-  const tooltipRow = hover
-    ? rowsWithY.find((r) => r.strike === hover.strike)
-    : null;
+  // Pick the symmetric band around spot. Filter to strikes within ±5%
+  // of spot first — the backend's top-N picker uses |dealer_pos|, which
+  // can promote far-OTM LEAPS strikes with massive OI but irrelevant
+  // intraday gamma. Then sort by absolute distance, slice to the visible
+  // count, and re-sort descending for display.
+  const NEAR_SPOT_PCT = 0.05;
+  const filtered = all.filter(
+    (r) => spot <= 0 || Math.abs(r.strike - spot) / spot <= NEAR_SPOT_PCT,
+  );
+  const pool = filtered.length >= 5 ? filtered : all;
+  const sorted = [...pool].sort(
+    (a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot),
+  );
+  const visible = sorted.slice(0, VISIBLE_ROWS).sort((a, b) => b.strike - a.strike);
+  const maxAbs = Math.max(...visible.map((r) => Math.abs(r.gexM)), 1);
+  const bandPct =
+    spot > 0 && visible.length > 0
+      ? (Math.max(
+          Math.abs(visible[0].strike - spot),
+          Math.abs(visible[visible.length - 1].strike - spot),
+        ) /
+          spot) *
+        100
+      : 0;
 
   return (
     <Panel
       title="GEX by Strike"
-      subtitle="Dealer gamma per strike ($M notional)"
+      subtitle={`${visible.length}/${all.length} strikes · band ±${bandPct.toFixed(2)}%`}
       actions={
         <div className="flex items-center gap-2.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-muted">
           <span className="inline-flex items-center gap-1.5">
@@ -149,253 +135,137 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
       }
       contentClassName="p-0 flex flex-col min-h-0"
     >
-      <div className="relative flex-1 min-h-0 overflow-y-auto">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          width={W}
-          height={H}
-          className="block w-full"
-          preserveAspectRatio="xMidYMin meet"
-        >
-          <defs>
-            <linearGradient id="gexNeg" x1="1" y1="0" x2="0" y2="0">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.95" />
-              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.18" />
-            </linearGradient>
-            <linearGradient id="gexPos" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#10b981" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#10b981" stopOpacity="0.95" />
-            </linearGradient>
-          </defs>
+      <div className="relative flex flex-1 min-h-0 flex-col">
+        {/* center axis indicator */}
+        <div
+          className="pointer-events-none absolute inset-y-0 left-[60%] w-px bg-line-strong/60"
+          aria-hidden
+        />
 
-          {/* center axis */}
-          <line
-            x1={center}
-            y1={PAD.t - 6}
-            x2={center}
-            y2={H - PAD.b + 6}
-            stroke="#3a3a40"
-            strokeOpacity="0.7"
-          />
-          <text
-            x={center}
-            y={H - PAD.b + 14}
-            textAnchor="middle"
-            fontSize="9"
-            fill="#71717a"
-            fontFamily="var(--font-jb-mono)"
-            letterSpacing="2"
-          >
-            $0
-          </text>
+        <div className="flex flex-1 min-h-0 flex-col">
+          {visible.map((r) => {
+            const pct = Math.min(100, (Math.abs(r.gexM) / maxAbs) * 100);
+            const isNeg = r.gexM < 0;
+            const isHover = hover === r.strike;
+            const isATM = r.distBucket === 2;
+            const isNear = r.distBucket === 1;
 
-          {/* x scale ticks */}
-          {[-1, -0.5, 0.5, 1].map((mul) => {
-            const v = mul * maxAbs;
-            const x = xOf(v);
-            return (
-              <g key={mul}>
-                <line
-                  x1={x}
-                  y1={PAD.t - 4}
-                  x2={x}
-                  y2={H - PAD.b + 4}
-                  stroke="#26262a"
-                  strokeOpacity="0.5"
-                  strokeDasharray="2 4"
-                />
-                <text
-                  x={x}
-                  y={H - PAD.b + 14}
-                  textAnchor="middle"
-                  fontSize="9"
-                  fill="#52525b"
-                  fontFamily="var(--font-jb-mono)"
-                >
-                  {v >= 0 ? "+" : ""}
-                  {Math.round(v)}M
-                </text>
-              </g>
-            );
-          })}
+            const labelTone =
+              r.isCallWall
+                ? "text-accent-long"
+                : r.isPutWall
+                  ? "text-accent-short"
+                  : r.isPin
+                    ? "text-accent-warn"
+                    : isATM
+                      ? "text-ink-high"
+                      : isNear
+                        ? "text-ink-base"
+                        : "text-ink-muted";
 
-          {/* spot crosshair — monochrome ink-high, prominent */}
-          <line
-            x1={PAD.l}
-            y1={spotY}
-            x2={W - PAD.r}
-            y2={spotY}
-            stroke="#f4f4f5"
-            strokeWidth="1"
-            strokeDasharray="3 4"
-            opacity="0.85"
-          />
-          <rect
-            x={W - PAD.r + 4}
-            y={spotY - 8}
-            width={68}
-            height={16}
-            fill="#f4f4f5"
-            opacity="0.95"
-          />
-          <text
-            x={W - PAD.r + 38}
-            y={spotY + 3}
-            textAnchor="middle"
-            fontSize="10"
-            fill="#08080a"
-            fontFamily="var(--font-jb-mono)"
-            fontWeight="600"
-          >
-            {spot.toFixed(2)}
-          </text>
-
-          {/* rows */}
-          {rowsWithY.map((r) => {
-            const y = r.y;
-            const cy = y + r.h / 2;
-            const isHover = hover?.strike === r.strike;
-
-            const barX = r.gexM < 0 ? xOf(r.gexM) : center;
-            const barW = Math.abs(xOf(r.gexM) - center);
-            const fill = r.gexM < 0 ? "url(#gexNeg)" : "url(#gexPos)";
-            const barH = r.amplifyTier === 2 ? 16 : r.amplifyTier === 1 ? 14 : 12;
-
-            // Near-spot rows get a subtle inkLayer tint for amplification.
-            const tintOpacity =
-              r.amplifyTier === 2 ? 0.06 : r.amplifyTier === 1 ? 0.03 : 0;
-
-            const labelFill =
-              isHover || r.isPutWall || r.isCallWall || r.isPin
-                ? "#f4f4f5"
-                : r.amplifyTier > 0
-                  ? "#e4e4e7"
-                  : "#a1a1aa";
-            const labelFontSize = r.amplifyTier === 2 ? 12.5 : r.amplifyTier === 1 ? 11.5 : 11;
-            const labelWeight = r.isPutWall || r.isCallWall || r.isPin || r.amplifyTier === 2 ? "600" : "400";
+            const rowBg = isATM
+              ? "bg-bg-card/60 border-l border-r border-line-strong/40"
+              : isNear
+                ? "bg-bg-card/30"
+                : "";
 
             return (
-              <g
+              <div
                 key={r.strike}
-                onMouseEnter={() => setHover({ strike: r.strike, y: cy })}
+                className={`group relative flex flex-1 min-h-0 items-center px-2 ${rowBg} ${isHover ? "bg-bg-hover" : ""} hover:bg-bg-hover transition-colors`}
+                onMouseEnter={() => setHover(r.strike)}
                 onMouseLeave={() => setHover(null)}
-                className="cursor-default"
               >
-                {/* row tint for ATM amplification */}
-                {tintOpacity > 0 && (
-                  <rect
-                    x={PAD.l - 60}
-                    y={y}
-                    width={W - PAD.l - PAD.r + 130}
-                    height={r.h}
-                    fill="#fff"
-                    opacity={tintOpacity}
-                  />
-                )}
+                {/* strike label */}
+                <div className="relative z-10 flex w-[60%] items-center justify-between pr-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`tabnum font-mono text-[11px] ${labelTone} ${isATM ? "font-semibold" : ""}`}>
+                      {r.strike}
+                    </span>
+                    {r.isCallWall && (
+                      <span className="font-mono text-[8.5px] uppercase tracking-[0.16em] text-accent-long">
+                        cw
+                      </span>
+                    )}
+                    {r.isPutWall && (
+                      <span className="font-mono text-[8.5px] uppercase tracking-[0.16em] text-accent-short">
+                        pw
+                      </span>
+                    )}
+                    {r.isPin && !r.isCallWall && !r.isPutWall && (
+                      <span className="font-mono text-[8.5px] uppercase tracking-[0.16em] text-accent-warn">
+                        pin
+                      </span>
+                    )}
+                  </div>
 
-                {isHover && (
-                  <rect
-                    x={PAD.l - 60}
-                    y={y}
-                    width={W - PAD.l - PAD.r + 130}
-                    height={r.h}
-                    fill="#fff"
-                    opacity="0.04"
-                  />
-                )}
+                  {/* negative bar (extends right-to-left toward strike) */}
+                  {isNeg && (
+                    <div
+                      className="ml-auto h-2 bg-accent-short/80"
+                      style={{ width: `${pct}%`, maxWidth: "100%" }}
+                    />
+                  )}
+                </div>
 
-                <text
-                  x={PAD.l - 10}
-                  y={cy + 3}
-                  textAnchor="end"
-                  fontSize={labelFontSize}
-                  fill={labelFill}
-                  fontFamily="var(--font-jb-mono)"
-                  fontWeight={labelWeight}
-                >
-                  {r.strike}
-                </text>
+                {/* positive bar (extends left-to-right from center) */}
+                <div className="relative z-10 flex w-[40%] items-center">
+                  {!isNeg && (
+                    <div
+                      className="h-2 bg-accent-long/80"
+                      style={{ width: `${pct * 0.66}%` }}
+                    />
+                  )}
+                  <span className={`ml-auto tabnum font-mono text-[10px] ${isHover ? "text-ink-high" : "text-ink-faint"}`}>
+                    {r.gexM >= 0 ? "+" : ""}
+                    {r.gexM.toFixed(0)}M
+                  </span>
+                </div>
 
-                {(r.isCallWall || r.isPutWall) && (
-                  <text
-                    x={PAD.l - 56}
-                    y={cy + 3}
-                    fontSize="8.5"
-                    fill={r.isCallWall ? "#10b981" : "#ef4444"}
-                    fontFamily="var(--font-jb-mono)"
-                    letterSpacing="1"
-                  >
-                    {r.isCallWall ? "C-WALL" : "P-WALL"}
-                  </text>
-                )}
-                {r.isPin && !r.isCallWall && !r.isPutWall && (
-                  <text
-                    x={PAD.l - 56}
-                    y={cy + 3}
-                    fontSize="8.5"
-                    fill="#f59e0b"
-                    fontFamily="var(--font-jb-mono)"
-                    letterSpacing="1"
-                  >
-                    PIN
-                  </text>
-                )}
-
-                <rect
-                  x={barX}
-                  y={cy - barH / 2}
-                  width={Math.max(2, barW)}
-                  height={barH}
-                  fill={fill}
-                  opacity={isHover ? 1 : 0.92}
-                />
-
-                <text
-                  x={r.gexM < 0 ? barX - 6 : barX + barW + 6}
-                  y={cy + 3}
-                  textAnchor={r.gexM < 0 ? "end" : "start"}
-                  fontSize={r.amplifyTier === 2 ? 11 : 10}
-                  fill={isHover ? "#f4f4f5" : "#71717a"}
-                  fontFamily="var(--font-jb-mono)"
-                  fontWeight="500"
-                >
-                  {r.gexM >= 0 ? "+" : ""}
-                  {r.gexM.toFixed(0)}M
-                </text>
-              </g>
+                {/* spot crosshair — render between the two strikes that bracket
+                    spot, as a 1px accent on the lower row's top edge. */}
+              </div>
             );
           })}
-        </svg>
+        </div>
 
-        {/* Hover popover. Position relative to the scrollable container,
-            so left/top map to the SVG's natural coords scaled by the
-            container width ratio. We keep it simple: anchor near the
-            right side of the bar area. */}
-        {tooltipRow && hover && (
-          <div className="pointer-events-none absolute inset-0">
-            <StrikeTooltipPosition
-              row={tooltipRow}
-              spot={spot}
-              snapshot={snapshot}
-              svgH={H}
-            />
-          </div>
-        )}
+        {/* spot price marker — overlay positioned where the bracketing
+            strikes sit. We compute it once by finding the gap. */}
+        <SpotMarker visible={visible} spot={spot} />
+
+        {/* hover popover */}
+        {hover !== null && (() => {
+          const row = visible.find((r) => r.strike === hover);
+          if (!row) return null;
+          return (
+            <div className="pointer-events-none absolute right-2 top-2 z-20">
+              <StrikeTooltip
+                strike={row.strike}
+                spot={spot}
+                netGexUsd={row.gexUsd}
+                callRow={row.callRow}
+                putRow={row.putRow}
+                isCallWall={row.isCallWall}
+                isPutWall={row.isPutWall}
+                isPin={row.isPin}
+                pinProb={snapshot.pin.top_probability}
+                x={0}
+                y={0}
+              />
+            </div>
+          );
+        })()}
       </div>
 
-      <div className="flex shrink-0 items-center justify-between border-t border-line px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+      <div className="flex shrink-0 items-center justify-between border-t border-line px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-faint">
         <span>
-          pin{" "}
-          <span className="tabnum text-accent-warn">@{snapshot.pin.top_strike}</span>{" "}
-          · prob{" "}
-          <span className="tabnum text-ink-base">
-            {(snapshot.pin.top_probability * 100).toFixed(0)}%
-          </span>
+          spot{" "}
+          <span className="tabnum text-ink-base">{spot.toFixed(2)}</span>
         </span>
         <span>
-          walls — call{" "}
+          walls{" "}
           <span className="tabnum text-accent-long">{snapshot.call_wall}</span>
-          {" · "}put{" "}
+          {" / "}
           <span className="tabnum text-accent-short">{snapshot.put_wall}</span>
         </span>
       </div>
@@ -403,65 +273,34 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
   );
 }
 
-// StrikeTooltipPosition — translates the SVG-coord row position into the
-// container's CSS coords. The SVG renders with width=100% so the natural
-//-to-css ratio is just `containerWidth / W`. The popover gets positioned
-// to the right of the row label area for hover affordance.
-function StrikeTooltipPosition({
-  row,
-  spot,
-  snapshot,
-  svgH,
-}: {
-  row: ReturnType<typeof Object.assign> & {
-    strike: number;
-    gexUsd: number;
-    isCallWall: boolean;
-    isPutWall: boolean;
-    isPin: boolean;
-    callRow?: ApiStrikeRow;
-    putRow?: ApiStrikeRow;
-    y: number;
-    h: number;
-  };
-  spot: number;
-  snapshot: ReturnType<typeof useSnapshot>["snapshot"];
-  svgH: number;
-}) {
-  // Place tooltip vertically at the row mid-y, horizontally a bit right of
-  // the strike-label column so it doesn't cover the bar. Convert from SVG
-  // coords to container percentage.
-  const cy = row.y + row.h / 2;
-  // Anchor at ~52% across the SVG horizontally and use percentage so the
-  // popover stays correctly placed regardless of container width.
-  const leftPct = 52;
-  const topPct = (cy / svgH) * 100;
-
-  // If row is in the bottom third, flip popover above to avoid clipping.
-  const flipUp = topPct > 70;
-
+// SpotMarker — thin horizontal line between the two strikes that bracket
+// spot, rendered inside the strike-ladder's relative container. Computes
+// the row index of the strike just above spot from the visible list and
+// draws at that row's bottom edge; if spot is above all rows or below
+// all rows the marker hides itself.
+function SpotMarker({ visible, spot }: { visible: AggRow[]; spot: number }) {
+  if (visible.length === 0) return null;
+  // visible is descending in strike. Find first strike <= spot.
+  let lower = -1;
+  for (let i = 0; i < visible.length; i++) {
+    if (visible[i].strike <= spot) {
+      lower = i;
+      break;
+    }
+  }
+  if (lower <= 0) return null;
+  // Row height is `flex-1` so equal share of container; place at `lower`'s
+  // top-edge (which is between lower-1 and lower).
+  const topPct = (lower / visible.length) * 100;
   return (
     <div
-      className="absolute"
-      style={{
-        left: `${leftPct}%`,
-        top: `${topPct}%`,
-        transform: flipUp ? "translate(0, -100%)" : "translate(0, 0)",
-      }}
+      className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
+      style={{ top: `${topPct}%`, transform: "translateY(-50%)" }}
     >
-      <StrikeTooltip
-        strike={row.strike}
-        spot={spot}
-        netGexUsd={row.gexUsd}
-        callRow={row.callRow}
-        putRow={row.putRow}
-        isCallWall={row.isCallWall}
-        isPutWall={row.isPutWall}
-        isPin={row.isPin}
-        pinProb={snapshot?.pin.top_probability}
-        x={0}
-        y={0}
-      />
+      <div className="h-px flex-1 border-t border-dashed border-ink-high/70" />
+      <div className="ml-1 tabnum rounded-sm bg-ink-high px-1 py-px font-mono text-[9px] font-semibold text-bg-base">
+        {spot.toFixed(2)}
+      </div>
     </div>
   );
 }
@@ -477,7 +316,7 @@ function ProfilePlaceholder({
 }) {
   const isError = status === "error";
   return (
-    <div className="flex h-64 items-center justify-center px-3">
+    <div className="flex flex-1 items-center justify-center px-3">
       {isError || empty ? (
         <span className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-ink-faint">
           {message ?? "no live state"}

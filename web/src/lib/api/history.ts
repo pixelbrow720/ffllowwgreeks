@@ -31,13 +31,13 @@ const EMPTY_SPOT_SERIES: ReadonlyArray<SpotPoint> = Object.freeze([]);
 // already downsampled, so memory cost is bounded.
 const SPOT_MAX = 480;
 
-// RTH-only filter. User asked for the chart to start near 23:00 WIB
-// (= 16:00 UTC) but unpaced replay slows once the strike cache passes
-// ~1500 entries. We drop the cutoff to 15:30 UTC (= 22:30 WIB) so the
-// dashboard has data to render immediately. The backend still ingests
-// the full window from 11:29 UTC (OI seed) so the position tracker is
-// fully populated by the time anything renders.
-const RTH_START_MIN_UTC = 15 * 60 + 30;
+// RTH-only filter. SPX cash opens 09:30 ET. Feb 2026 is EST (UTC-5), so
+// 09:30 ET = 14:30 UTC. User asked for 20:30 WIB (= 13:30 UTC, ~1h
+// before regular cash open during EST) — that catches the pre-RTH
+// futures activity that drives early dealer positioning. The backend
+// ingests the full window from 11:29 UTC (OI seed) so position state
+// is fully populated by the time anything renders.
+const RTH_START_MIN_UTC = 13 * 60 + 30;
 
 function isInRTH(tsNs: number): boolean {
   const d = new Date(Math.floor(tsNs / 1e6));
@@ -107,6 +107,11 @@ async function backfillSpot(symbol: Symbol): Promise<void> {
     const from = new Date(to.getTime() - 8 * 60 * 60 * 1000);
     const resp = await getHistory(symbol, { from, to, max: 480 });
     for (const s of resp.samples) {
+      // Defensive: backend filters spot < 1000 too, but historical rows
+      // written before the basis tracker seeded carry tiny placeholder
+      // values that would crash the chart's y-axis. Drop them here
+      // again so a stale backend can't poison the display.
+      if (s.spot < 1000) continue;
       pushSpot(symbol, s.ts_ns, s.spot);
     }
   } catch (err) {

@@ -217,6 +217,14 @@ func (h *Handlers) history(w http.ResponseWriter, r *http.Request) {
 	out.Samples = make([]sample, 0, len(rows)/stride+1)
 	for i := 0; i < len(rows); i += stride {
 		row := rows[i]
+		// Skip rows that landed in the table before the basis tracker
+		// produced a real spot — those rows carry the synthetic seed
+		// (~53) and would otherwise pull the chart Y-axis to garbage.
+		// 1000 is well below any realistic SPX/NDX print and well above
+		// every legacy seed value we've observed.
+		if row.Spot < 1000 {
+			continue
+		}
 		out.Samples = append(out.Samples, sample{
 			TsNs:         uint64(row.Ts.UnixNano()),
 			Spot:         row.Spot,

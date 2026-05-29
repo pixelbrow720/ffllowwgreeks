@@ -25,8 +25,20 @@ interface Entry {
   view: SnapshotState;
   // Only the first hook instance triggers the REST seed.
   seedStarted: boolean;
+  // Last wall-clock millisecond the live snapshot was forwarded to
+  // subscribers. Used to throttle the 1Hz state firehose down to a
+  // human-readable cadence — operators don't need 60 redraws/min on a
+  // dashboard that displays 6-figure dollar amounts. See `LIVE_THROTTLE_MS`.
+  lastForwardedAt: number;
   listeners: Set<() => void>;
 }
+
+// Live snapshot updates are throttled to 1 update per minute by default.
+// Backend still publishes at 1Hz, but the dashboard re-renders at most
+// once a minute so values remain stable enough to read. Pin / regime /
+// charm-zone flips are pushed through immediately regardless (see the
+// "force" branch in the WS handler) so important transitions never wait.
+const LIVE_THROTTLE_MS = 60_000;
 
 const EMPTY_VIEW: SnapshotState = {
   snapshot: null,
@@ -42,6 +54,7 @@ function ensure(symbol: Symbol): Entry {
     e = {
       view: EMPTY_VIEW,
       seedStarted: false,
+      lastForwardedAt: 0,
       listeners: new Set(),
     };
     store.set(symbol, e);
@@ -91,9 +104,32 @@ export function useSnapshot(symbol: Symbol): SnapshotState {
     const channel = `${symbol.toLowerCase()}:gex` as Channel;
     return sock.subscribe(channel, (ev) => {
       if (!ev.snapshot) return;
-      const cur = ensure(symbol).view.snapshot;
+      const e = ensure(symbol);
+      const cur = e.view.snapshot;
       if (cur && ev.snapshot.ts_ns < cur.ts_ns) return;
-      update(symbol, { snapshot: ev.snapshot, status: "ready", error: null });
+
+      // Always force-flush on the FIRST sample so the panel paints data
+      // immediately rather than waiting up to a minute. After that,
+      // throttle ordinary updates but force-flush whenever a "regime"
+      // signal flips (regime, charm zone, pin activation/strike) so the
+      // operator never misses a meaningful transition.
+      const now = Date.now();
+      const isFirst = !cur;
+      const regimeChange =
+        cur &&
+        (cur.regime !== ev.snapshot.regime ||
+          cur.charm_zone !== ev.snapshot.charm_zone ||
+          cur.pin.active !== ev.snapshot.pin.active ||
+          cur.pin.top_strike !== ev.snapshot.pin.top_strike);
+
+      if (
+        isFirst ||
+        regimeChange ||
+        now - e.lastForwardedAt >= LIVE_THROTTLE_MS
+      ) {
+        e.lastForwardedAt = now;
+        update(symbol, { snapshot: ev.snapshot, status: "ready", error: null });
+      }
     });
   }, [sock, symbol]);
 
