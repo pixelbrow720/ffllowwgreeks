@@ -40,11 +40,14 @@ import (
 
 func main() {
 	var (
-		inPath  = flag.String("in", "", "input CSV from iv_parity.py (required)")
-		outPath = flag.String("out", "", "output CSV path (required)")
-		spot    = flag.Float64("spot", 0, "underlying spot used in the Python script (required)")
-		rfr     = flag.Float64("r", 0.045, "continuously-compounded risk-free rate")
-		div     = flag.Float64("q", 0.013, "continuous dividend yield (SPX≈0.013, NDX≈0.008)")
+		inPath      = flag.String("in", "", "input CSV from iv_parity.py (required)")
+		outPath     = flag.String("out", "", "output CSV path (required)")
+		spot        = flag.Float64("spot", 0, "underlying spot used in the Python script (required)")
+		rfr         = flag.Float64("r", 0.045, "continuously-compounded risk-free rate")
+		div         = flag.Float64("q", 0.013, "continuous dividend yield (SPX≈0.013, NDX≈0.008)")
+		useInputIV  = flag.Bool("use-input-sigma", false,
+			"compute Greeks from the input sigma column instead of the IV solved from mid; "+
+				"separates Greeks-formula parity from IV-solver parity (parity_grid.py uses this)")
 	)
 	flag.Parse()
 
@@ -85,6 +88,7 @@ func main() {
 	midIdx := col("mid")
 	tIdx := col("t_years")
 	classIdx := col("instrument_class")
+	sigmaIdx := col("sigma") // optional; required when -use-input-sigma is set
 	for name, idx := range map[string]int{
 		"instrument_id": idIdx, "strike_price": strikeIdx,
 		"mid": midIdx, "t_years": tIdx, "instrument_class": classIdx,
@@ -92,6 +96,9 @@ func main() {
 		if idx < 0 {
 			log.Fatalf("input CSV missing required column %q", name)
 		}
+	}
+	if *useInputIV && sigmaIdx < 0 {
+		log.Fatalf("-use-input-sigma requires a 'sigma' column in the input CSV")
 	}
 
 	w := csv.NewWriter(outFile)
@@ -137,12 +144,30 @@ func main() {
 
 		res := greeks.ImpliedVol(mid, *spot, strike, tYears, *rfr, *div, side, cfg)
 		var g greeks.Greeks
-		if res.Converged {
+		var greeksIV float64
+		switch {
+		case *useInputIV:
+			// Use the input sigma directly so Greeks parity isolates the
+			// analytical formulas from IV-solver convergence error.
+			sig, errSig := strconv.ParseFloat(rec[sigmaIdx], 64)
+			if errSig != nil || sig <= 0 {
+				continue
+			}
+			greeksIV = sig
+			g = greeks.All(*spot, strike, tYears, *rfr, *div, sig, side)
+			if res.Converged {
+				solved++
+			} else {
+				failed++
+			}
+		case res.Converged:
+			greeksIV = res.IV
 			g = greeks.All(*spot, strike, tYears, *rfr, *div, res.IV, side)
 			solved++
-		} else {
+		default:
 			failed++
 		}
+		_ = greeksIV
 
 		sideStr := "C"
 		if side == feed.SidePut {
@@ -185,5 +210,9 @@ func fmtFloat(v float64) string {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return ""
 	}
-	return strconv.FormatFloat(v, 'f', 9, 64)
+	// 'g' with -1 prec emits the minimum digits that round-trip back to
+	// the same float64, so Python parity tests don't lose precision in
+	// CSV serialization (a previous 'f' / 9-decimal format clipped 1e-7
+	// gamma and similar small-magnitude Greeks below noise floor).
+	return strconv.FormatFloat(v, 'g', -1, 64)
 }
