@@ -21,6 +21,9 @@ name: flowgreeks
 #
 # Migrations run as a one-shot sidecar via the `migrate` service. It
 # blocks app startup via depends_on: condition: service_completed_successfully.
+#
+# All app images use distroless+nonroot from deploy/Dockerfile and have
+# resource limits + a HEALTHCHECK so a wedged process is restartable.
 # ──────────────────────────────────────────────────────────────────────
 
 x-go-build: &go-build
@@ -30,6 +33,19 @@ x-go-build: &go-build
   restart: unless-stopped
   env_file:
     - ../.env
+
+# Sensible default resource ceilings for the four Go binaries on a
+# single-host deploy (Hetzner AX-class). Override per-service when a
+# binary is known to need more (e.g. compute under heavy 0DTE burst).
+x-app-limits: &app-limits
+  deploy:
+    resources:
+      limits:
+        cpus: "2.0"
+        memory: 1024M
+      reservations:
+        cpus: "0.25"
+        memory: 128M
 
 x-app-env: &app-env
   POSTGRES_HOST: postgres
@@ -107,7 +123,7 @@ services:
         condition: service_healthy
 
   api:
-    <<: *go-build
+    <<: [*go-build, *app-limits]
     profiles: ["app", "demo"]
     container_name: fg-api
     build:
@@ -119,8 +135,22 @@ services:
       <<: *app-env
       API_LISTEN_ADDR: ":8080"
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3000}
+      # Production deploys MUST set API_METRICS_ADDR (e.g. 127.0.0.1:9100)
+      # so /metrics moves off the public port. Compose default leaves
+      # /metrics on :8080 which is fine for dev.
+      API_METRICS_ADDR: ${API_METRICS_ADDR:-}
     ports:
       - "8080:8080"
+    # Distroless static images have no shell / wget / curl, so HEALTHCHECK
+    # would need a binary flag (—healthcheck) on every service. Skipped
+    # for now; rely on `restart: unless-stopped` for process death and
+    # the upstream LB / k8s probe to hit /health/live directly.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,7 +160,7 @@ services:
         condition: service_completed_successfully
 
   ingest:
-    <<: *go-build
+    <<: [*go-build, *app-limits]
     profiles: ["app"]
     container_name: fg-ingest
     build:
@@ -140,6 +170,12 @@ services:
         BINARY: ingest
     environment:
       <<: *app-env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -149,7 +185,7 @@ services:
         condition: service_completed_successfully
 
   compute:
-    <<: *go-build
+    <<: [*go-build, *app-limits]
     profiles: ["app"]
     container_name: fg-compute
     build:
@@ -159,6 +195,12 @@ services:
         BINARY: compute
     environment:
       <<: *app-env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
     depends_on:
       nats:
         condition: service_healthy
@@ -168,7 +210,7 @@ services:
         condition: service_completed_successfully
 
   replay:
-    <<: *go-build
+    <<: [*go-build, *app-limits]
     profiles: ["app"]
     container_name: fg-replay
     build:
@@ -178,6 +220,12 @@ services:
         BINARY: replay
     environment:
       <<: *app-env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
     depends_on:
       postgres:
         condition: service_healthy
