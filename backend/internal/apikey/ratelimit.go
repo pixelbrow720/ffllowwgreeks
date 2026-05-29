@@ -1,11 +1,18 @@
 package apikey
 
 import (
+	"hash/fnv"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 )
+
+// rateLimiterShards is the number of independent token-bucket maps.
+// Each shard has its own mutex, so M parallel callers contend only when
+// their keys hash to the same shard. Sized to be greater than typical
+// API server CPU count so contention is rare even under burst.
+const rateLimiterShards = 32
 
 // RateLimiter is a per-key token-bucket limiter. Each APIKey carries
 // its own RateLimitRPS + RateBurst from the api_keys row, so the
@@ -18,13 +25,21 @@ import (
 //
 // Memory: buckets are evicted via a janitor goroutine so a churning
 // key population doesn't grow the map without bound.
+//
+// Concurrency: sharded across rateLimiterShards independent maps so
+// one hot tenant's bucket lookup doesn't serialize every other
+// authenticated request through a global mutex.
 type RateLimiter struct {
 	ttl time.Duration
 
-	mu      sync.Mutex
-	buckets map[string]*bucket
+	shards [rateLimiterShards]rlShard
 
 	stop chan struct{}
+}
+
+type rlShard struct {
+	mu      sync.Mutex
+	buckets map[string]*bucket
 }
 
 type bucket struct {
@@ -38,12 +53,22 @@ type bucket struct {
 // NewRateLimiter constructs a limiter with a 1h inactivity TTL.
 func NewRateLimiter() *RateLimiter {
 	rl := &RateLimiter{
-		ttl:     time.Hour,
-		buckets: make(map[string]*bucket),
-		stop:    make(chan struct{}),
+		ttl:  time.Hour,
+		stop: make(chan struct{}),
+	}
+	for i := range rl.shards {
+		rl.shards[i].buckets = make(map[string]*bucket, 64)
 	}
 	go rl.janitor()
 	return rl
+}
+
+// shardFor picks an independent bucket map for key. FNV-1a is cheap
+// and well-distributed; we don't need crypto strength here.
+func (rl *RateLimiter) shardFor(key string) *rlShard {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return &rl.shards[h.Sum32()%rateLimiterShards]
 }
 
 // Close stops the janitor goroutine. Safe to call multiple times.
@@ -60,12 +85,13 @@ func (rl *RateLimiter) Close() {
 // APIKey row so different tiers use different budgets.
 func (rl *RateLimiter) Allow(key string, rate, burst float64) (bool, time.Duration) {
 	now := time.Now()
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	b, ok := rl.buckets[key]
+	s := rl.shardFor(key)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.buckets[key]
 	if !ok {
 		b = &bucket{tokens: burst, rate: rate, burst: burst, updated: now}
-		rl.buckets[key] = b
+		s.buckets[key] = b
 	} else {
 		// Per-key tier may have changed since the bucket was minted —
 		// honour the current rate/burst on every call.
@@ -185,13 +211,16 @@ func (rl *RateLimiter) janitor() {
 		case <-rl.stop:
 			return
 		case now := <-t.C:
-			rl.mu.Lock()
-			for k, b := range rl.buckets {
-				if now.Sub(b.lastSeen) > rl.ttl {
-					delete(rl.buckets, k)
+			for i := range rl.shards {
+				s := &rl.shards[i]
+				s.mu.Lock()
+				for k, b := range s.buckets {
+					if now.Sub(b.lastSeen) > rl.ttl {
+						delete(s.buckets, k)
+					}
 				}
+				s.mu.Unlock()
 			}
-			rl.mu.Unlock()
 		}
 	}
 }

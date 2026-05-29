@@ -61,7 +61,15 @@ func NewWebhookSink(rawURL string) (*WebhookSink, error) {
 		return nil, err
 	}
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		// Proxy is intentionally nil. http.ProxyFromEnvironment would route
+		// the request through HTTP_PROXY/HTTPS_PROXY when set; DialContext
+		// then connects to the proxy address rather than the original
+		// target, so safeDial inspects the proxy IP. If the proxy is
+		// public-routable (common in k8s sidecar / corp egress), the
+		// loopback / RFC1918 / metadata defense is silently bypassed —
+		// the proxy forwards to e.g. 169.254.169.254 from inside the
+		// network. Direct connections only.
+		Proxy: nil,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return safeDial(ctx, network, addr)
 		},

@@ -9,11 +9,15 @@ import (
 // FromNATS pulls the trace id from a NATS message header, returning "" if
 // either the header set is nil or the key is absent. NATS messages
 // without a Header field (older clients) return "" gracefully.
+//
+// Incoming values are sanitized: trimmed, length-capped, charset
+// restricted. Hostile or malformed ids are dropped to "" so a single
+// poisoned upstream subject can't amplify log storage downstream.
 func FromNATS(m *nats.Msg) string {
 	if m == nil || m.Header == nil {
 		return ""
 	}
-	return m.Header.Get(HeaderName)
+	return sanitizeIncomingID(m.Header.Get(HeaderName))
 }
 
 // InjectNATS prepares a *nats.Msg with the trace id from ctx attached as

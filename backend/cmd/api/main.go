@@ -117,7 +117,24 @@ func main() {
 	r.Get("/health/live", healthHandler)
 	var draining atomic.Bool
 	r.Get("/health/ready", readinessHandler(nc, cfg, &draining))
-	r.Method(http.MethodGet, "/metrics", promhttp.Handler())
+
+	// /metrics is mounted on the public router only when no separate
+	// metrics listener is configured (development). When API_METRICS_ADDR
+	// is set, /metrics moves to that listener so per-key auth-failure
+	// rate, subscriber counts, and queue lag are not visible to
+	// unauth clients on the main port.
+	if cfg.API.MetricsAddr == "" {
+		r.Method(http.MethodGet, "/metrics", promhttp.Handler())
+	} else {
+		metricsSrv := startMetricsListener(cfg.API.MetricsAddr, log)
+		defer func() {
+			if metricsSrv != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = metricsSrv.Shutdown(ctx)
+			}
+		}()
+	}
 
 	// API-key auth setup. Returns the configured middleware (or nil
 	// when no Postgres pool is available — protected routes degrade
@@ -283,24 +300,30 @@ func readinessHandler(nc *nats.Conn, cfg *config.Config, draining *atomic.Bool) 
 			if nc != nil && nc.IsConnected() {
 				return true, ""
 			}
-			msg := "not connected"
+			// Don't expose NATS internal status / last-error verbatim.
+			// Log it; return generic.
 			if nc != nil {
 				if le := nc.LastError(); le != nil {
-					msg = le.Error()
+					slog.Default().Warn("readiness nats not connected", "err", le)
 				} else {
-					msg = nc.Status().String()
+					slog.Default().Warn("readiness nats status", "status", nc.Status().String())
 				}
 			}
-			return false, msg
+			return false, "unreachable"
 		},
 		func(ctx context.Context) (bool, string) {
 			pool, err := pgxpool.New(ctx, cfg.Postgres.DSN())
 			if err != nil {
-				return false, "pool: " + err.Error()
+				// Don't echo the raw error: pgx errors carry host, port,
+				// user, dial diagnostics that fingerprint the internal DB
+				// topology. Log internally, return generic to caller.
+				slog.Default().Warn("readiness pgx pool failed", "err", err)
+				return false, "unreachable"
 			}
 			defer pool.Close()
 			if perr := pool.Ping(ctx); perr != nil {
-				return false, "ping: " + perr.Error()
+				slog.Default().Warn("readiness pgx ping failed", "err", perr)
+				return false, "unreachable"
 			}
 			return true, ""
 		},
@@ -368,6 +391,32 @@ func readinessHandlerForState(draining *atomic.Bool,
 func readinessHandlerFor(natsCheck func() (bool, string),
 	postgresCheck func(context.Context) (bool, string)) http.HandlerFunc {
 	return readinessHandlerForState(nil, natsCheck, postgresCheck)
+}
+
+// startMetricsListener boots a separate HTTP listener that serves only
+// /metrics + /health (for self-checks). Used in production to keep the
+// Prometheus surface off the public port — operators bind this to a
+// localhost or admin-network address (e.g. 127.0.0.1:9100) and scrape
+// over that interface.
+func startMetricsListener(addr string, log *slog.Logger) *http.Server {
+	mr := chi.NewRouter()
+	mr.Method(http.MethodGet, "/metrics", promhttp.Handler())
+	mr.Get("/health", healthHandler)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mr,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	go func() {
+		log.Info("metrics listener", "addr", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("metrics listener failed", "addr", addr, "err", err)
+		}
+	}()
+	return srv
 }
 
 // setupAPIKey wires the API-key auth surface against the shared pool.

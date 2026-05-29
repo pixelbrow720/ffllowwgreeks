@@ -34,6 +34,14 @@ import (
 // HeaderName is the convention used on both HTTP and NATS messages.
 const HeaderName = "X-Trace-ID"
 
+// maxIncomingIDLen caps trace ids accepted from upstream clients. Our
+// own NewID emits 16-hex-char ids; we accept up to 64 to leave room for
+// upstream systems that use longer formats (W3C tracestate-style 32-hex
+// trace ids, hyphenated UUIDs). Anything longer is hostile or buggy —
+// rejecting it prevents log-storage amplification (4 KB junk header
+// echoed on every slog line for that request).
+const maxIncomingIDLen = 64
+
 type ctxKey struct{}
 
 // NewID generates a fresh 8-byte hex trace ID. Short enough to read in
@@ -45,6 +53,30 @@ func NewID() string {
 		return "00000000"
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// sanitizeIncomingID validates a trace id received from an untrusted
+// source (HTTP header, NATS header). Returns the id unchanged if valid,
+// "" otherwise. Valid means: non-empty, ≤ maxIncomingIDLen, charset
+// limited to [0-9a-zA-Z_-]. The charset is permissive enough to accept
+// hex, base64url, and hyphenated UUIDs; restrictive enough to block
+// CR/LF (header injection), spaces, and high-bit bytes.
+func sanitizeIncomingID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > maxIncomingIDLen {
+		return ""
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		ok := (c >= '0' && c <= '9') ||
+			(c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			c == '-' || c == '_'
+		if !ok {
+			return ""
+		}
+	}
+	return s
 }
 
 // WithID attaches id to ctx so downstream code can read it via FromContext.
@@ -98,14 +130,19 @@ func Logger(ctx context.Context, log *slog.Logger) *slog.Logger {
 // header from upstream callers; falls back to chi's request_id when
 // available. Empty when neither is present — caller decides whether to
 // generate a fresh one (typically yes via EnsureID).
+//
+// Incoming values are sanitized: trimmed, capped at maxIncomingIDLen,
+// charset restricted to [0-9a-zA-Z_-]. Anything else is dropped to ""
+// so a hostile client cannot inject 4 KB of junk that gets echoed on
+// every slog line for the request (log-storage amplification).
 func FromHTTP(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	if v := r.Header.Get(HeaderName); v != "" {
+	if v := sanitizeIncomingID(r.Header.Get(HeaderName)); v != "" {
 		return v
 	}
-	if v := r.Header.Get("X-Request-ID"); v != "" {
+	if v := sanitizeIncomingID(r.Header.Get("X-Request-ID")); v != "" {
 		return v
 	}
 	return ""

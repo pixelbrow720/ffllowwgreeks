@@ -98,6 +98,14 @@ type APIConfig struct {
 	ListenAddr     string
 	CORSOrigins    []string
 	TrustedProxies []string // CIDR list; XFF only honoured when RemoteAddr matches one of these
+
+	// MetricsAddr is the bind address for the /metrics endpoint. When
+	// empty (default), /metrics is mounted on the public router at
+	// ListenAddr — fine for local dev. In production set this to a
+	// localhost-only or admin-network address (e.g. "127.0.0.1:9100"
+	// or "10.0.0.1:9100") so per-key auth-failure rate, subscriber
+	// counts, and queue lag are not leaked to public scrapers.
+	MetricsAddr string
 }
 
 type LogConfig struct {
@@ -131,6 +139,7 @@ func Load() (*Config, error) {
 			ListenAddr:     getEnv("API_LISTEN_ADDR", ":8080"),
 			CORSOrigins:    splitCSV(getEnv("API_CORS_ORIGINS", "http://localhost:3000")),
 			TrustedProxies: splitCSV(os.Getenv("API_TRUSTED_PROXIES")),
+			MetricsAddr:    os.Getenv("API_METRICS_ADDR"),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
@@ -250,6 +259,14 @@ func (c *Config) validateProduction() error {
 	// some upstream libraries. Refuse to start with that on prod.
 	if strings.EqualFold(c.Log.Level, "debug") {
 		problems = append(problems, "LOG_LEVEL=debug is unsafe in production")
+	}
+
+	// Metrics endpoint: must be on its own bind address in production
+	// so per-key auth-failure rate, subscriber counts, and queue lag
+	// can't be scraped from the public surface. Local-only or
+	// admin-network only.
+	if c.API.MetricsAddr == "" {
+		problems = append(problems, "API_METRICS_ADDR must be set in production (e.g. 127.0.0.1:9100) so /metrics is not on the public listener")
 	}
 
 	if len(problems) > 0 {

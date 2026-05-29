@@ -44,6 +44,16 @@ func TestValidateProduction_RejectsDevDefaults(t *testing.T) {
 			},
 			wantErr: "APIKEY_ENABLED must be true",
 		},
+		{
+			name: "missing_metrics_addr",
+			mutate: func(c *Config) {
+				c.Postgres.Password = "real-secret"
+				c.APIKey.Enabled = true
+				c.API.CORSOrigins = []string{"https://flowgreeks.com"}
+				c.API.MetricsAddr = ""
+			},
+			wantErr: "API_METRICS_ADDR must be set",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,6 +76,7 @@ func TestValidateProduction_AcceptsClean(t *testing.T) {
 	c.API.CORSOrigins = []string{"https://flowgreeks.com"}
 	c.APIKey.Enabled = true
 	c.Log.Level = "info"
+	c.API.MetricsAddr = "127.0.0.1:9100"
 	if err := c.validate(); err != nil {
 		t.Fatalf("clean prod config rejected: %v", err)
 	}
@@ -100,6 +111,7 @@ func baselineProdConfig() *Config {
 		API: APIConfig{
 			ListenAddr:  ":8080",
 			CORSOrigins: []string{"https://flowgreeks.com"},
+			MetricsAddr: "127.0.0.1:9100",
 		},
 	}
 }
