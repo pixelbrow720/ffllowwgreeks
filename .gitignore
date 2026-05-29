@@ -54,3 +54,9 @@ desktop.ini
 # Build / cache
 *.log
 .cache/
+
+# Local binary outputs (Go builds; rebuild via go build, never commit)
+tmp/
+
+# Kilo session state (do NOT commit chat transcripts or per-session config)
+.kilo/state/

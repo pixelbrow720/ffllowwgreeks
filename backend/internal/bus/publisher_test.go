@@ -121,13 +121,16 @@ func TestSubjectFor(t *testing.T) {
 			want: "ticks.spx.future.ESM6",
 		},
 		{
-			name: "option oi unsupported",
+			name: "option oi",
 			tick: feed.Tick{
 				Symbol:     feed.SymbolSPX,
 				AssetClass: feed.AssetClassOption,
 				TickType:   feed.TickTypeOI,
+				Expiry:     20260620,
+				Strike:     5810000,
+				Side:       feed.SideCall,
 			},
-			wantErr: true,
+			want: "ticks.spx.oi.20260620.5810000.C",
 		},
 		{
 			name: "unknown asset class",

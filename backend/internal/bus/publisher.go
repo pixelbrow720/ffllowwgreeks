@@ -196,6 +196,8 @@ func (p *Publisher) subjectFor(t feed.Tick) (string, error) {
 			return SubjectTickQuote(t.Symbol, t.Expiry, t.Strike, t.Side), nil
 		case feed.TickTypeTrade:
 			return SubjectTickTrade(t.Symbol, t.Expiry, t.Strike, t.Side), nil
+		case feed.TickTypeOI:
+			return SubjectTickOI(t.Symbol, t.Expiry, t.Strike, t.Side), nil
 		}
 	}
 	return "", fmt.Errorf("bus: publish: unsupported tick type %d (asset class %d)", t.TickType, t.AssetClass)

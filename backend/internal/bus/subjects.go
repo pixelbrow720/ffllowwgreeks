@@ -45,6 +45,14 @@ func SubjectTickTrade(sym feed.Symbol, expiry, strike uint32, side feed.Side) st
 		strings.ToLower(sym.String()), expiry, strike, side.String())
 }
 
+// SubjectTickOI returns the subject for an open-interest update event.
+//
+//	ticks.spx.oi.20260620.5810000.C
+func SubjectTickOI(sym feed.Symbol, expiry, strike uint32, side feed.Side) string {
+	return fmt.Sprintf("ticks.%s.oi.%d.%d.%s",
+		strings.ToLower(sym.String()), expiry, strike, side.String())
+}
+
 // SubjectFutureTick returns the subject for a futures tick (basis tracking).
 //
 //	ticks.spx.future.ESM6

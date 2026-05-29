@@ -1,6 +1,8 @@
 package dealer
 
 import (
+	"sync"
+
 	"flowgreeks/internal/feed"
 )
 
@@ -17,8 +19,13 @@ const (
 // per (symbol, expiry, strike, side) per docs/COMPUTE_MODEL.md §4.
 // SeedFromOI sets the prior; Apply mutates it from classified trades.
 //
-// Concurrency: single-threaded by design (one event loop drives it).
+// Concurrency: writers (SeedFromOI / Apply / PruneExpired) and readers
+// (Snapshot / Get) run on different goroutines in cmd/compute (NATS
+// callback vs aggregator loop). Guard the map with an RWMutex so the
+// aggregator's Snapshot can read concurrently with itself but is fenced
+// against writers.
 type PositionTracker struct {
+	mu  sync.RWMutex
 	pos map[strikeKey]int64
 }
 
@@ -45,7 +52,9 @@ func (p *PositionTracker) SeedFromOI(t feed.Tick) {
 		return
 	}
 	k := strikeKey{Symbol: t.Symbol, Side: t.Side, Expiry: t.Expiry, Strike: t.Strike}
+	p.mu.Lock()
 	p.pos[k] = int64(coeff * float64(t.OpenInterest))
+	p.mu.Unlock()
 }
 
 // Apply updates the dealer position for a classified trade tick. Customer
@@ -63,9 +72,13 @@ func (p *PositionTracker) Apply(t feed.Tick) {
 	k := strikeKey{Symbol: t.Symbol, Side: t.Side, Expiry: t.Expiry, Strike: t.Strike}
 	switch t.Aggressor {
 	case feed.AggressorBuy:
+		p.mu.Lock()
 		p.pos[k] -= int64(t.Size)
+		p.mu.Unlock()
 	case feed.AggressorSell:
+		p.mu.Lock()
 		p.pos[k] += int64(t.Size)
+		p.mu.Unlock()
 	default:
 		// AggressorUnknown — leave position unchanged.
 	}
@@ -74,7 +87,10 @@ func (p *PositionTracker) Apply(t feed.Tick) {
 // Get returns the current dealer position for the given strike. Returns
 // zero for an unknown strike.
 func (p *PositionTracker) Get(symbol feed.Symbol, expiry, strike uint32, side feed.Side) int64 {
-	return p.pos[strikeKey{Symbol: symbol, Side: side, Expiry: expiry, Strike: strike}]
+	p.mu.RLock()
+	v := p.pos[strikeKey{Symbol: symbol, Side: side, Expiry: expiry, Strike: strike}]
+	p.mu.RUnlock()
+	return v
 }
 
 // Snapshot returns a slice of StrikeRow for every strike of the given
@@ -82,6 +98,7 @@ func (p *PositionTracker) Get(symbol feed.Symbol, expiry, strike uint32, side fe
 // — they are filled by other components (greeks pipeline). The returned
 // slice is freshly allocated; callers may retain or mutate it.
 func (p *PositionTracker) Snapshot(symbol feed.Symbol) []StrikeRow {
+	p.mu.RLock()
 	out := make([]StrikeRow, 0, len(p.pos))
 	for k, v := range p.pos {
 		if k.Symbol != symbol {
@@ -94,6 +111,7 @@ func (p *PositionTracker) Snapshot(symbol feed.Symbol) []StrikeRow {
 			DealerPos: v,
 		})
 	}
+	p.mu.RUnlock()
 	return out
 }
 
@@ -102,14 +120,17 @@ func (p *PositionTracker) Snapshot(symbol feed.Symbol) []StrikeRow {
 // Returns the number of entries evicted. Caller drives this from a
 // session-boundary tick — typically once per day at SOD — so the
 // per-strike map doesn't accumulate dead 0DTE contracts on a
-// long-running ingest. Single-threaded by the same invariant as Apply.
+// long-running ingest. Safe under the same RWMutex as the rest of the
+// tracker.
 func (p *PositionTracker) PruneExpired(today uint32) int {
 	var n int
+	p.mu.Lock()
 	for k := range p.pos {
 		if k.Expiry < today {
 			delete(p.pos, k)
 			n++
 		}
 	}
+	p.mu.Unlock()
 	return n
 }
