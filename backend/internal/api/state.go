@@ -21,7 +21,18 @@ import (
 	"flowgreeks/internal/feed"
 
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+// stateHeadParseErrors counts NATS state/narrative payloads whose ts_ns
+// header could not be parsed. Previously swallowed silently — a
+// corrupted compute publish would strip ts_ns from broker fanout with
+// no operator signal. Bounded cardinality (one label).
+var stateHeadParseErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flowgreeks_state_head_parse_errors_total",
+	Help: "NATS state/narrative payloads with malformed ts_ns header.",
+}, []string{"subject"})
 
 // StateKind identifies a stream emitted by the compute service.
 type StateKind string
@@ -240,11 +251,14 @@ func SubscribeNATS(ctx context.Context, nc *nats.Conn, cache *Cache, broker *Bro
 		if !ok {
 			return
 		}
-		// Peek ts_ns for staleness reporting; ignore parse failures.
+		// Peek ts_ns for staleness reporting; meter parse failures so a
+		// corrupted compute publish doesn't silently strip the timestamp.
 		var head struct {
 			TsNs uint64 `json:"ts_ns"`
 		}
-		_ = json.Unmarshal(m.Data, &head)
+		if err := json.Unmarshal(m.Data, &head); err != nil {
+			stateHeadParseErrors.WithLabelValues("state").Inc()
+		}
 
 		snap := Snapshot{
 			Symbol: sym,
@@ -267,7 +281,9 @@ func SubscribeNATS(ctx context.Context, nc *nats.Conn, cache *Cache, broker *Bro
 		var head struct {
 			TsNs uint64 `json:"ts_ns"`
 		}
-		_ = json.Unmarshal(m.Data, &head)
+		if err := json.Unmarshal(m.Data, &head); err != nil {
+			stateHeadParseErrors.WithLabelValues("narrative").Inc()
+		}
 		// Narrative events are time-series, not snapshots — don't cache.
 		broker.Publish(Snapshot{
 			Symbol: sym,

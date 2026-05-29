@@ -2,7 +2,19 @@ package dealer
 
 import (
 	"flowgreeks/internal/feed"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+// classifierUnknown counts Lee-Ready fallthroughs by reason so operators
+// can spot a degraded classifier (e.g. a flood of crossed quotes from a
+// venue glitch, or a strike that's never traded so tick-test has no
+// anchor). Cardinality is bounded — three reasons by construction.
+var classifierUnknown = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flowgreeks_classifier_aggressor_unknown_total",
+	Help: "Lee-Ready trades that returned AggressorUnknown, by reason.",
+}, []string{"reason"})
 
 // maxClassifierStrikes caps the per-strike last-trade-price map. Once the
 // cap is reached we reset the map; expired contracts age out at day
@@ -54,6 +66,7 @@ func (c *Classifier) Classify(t feed.Tick) feed.Aggressor {
 		return feed.AggressorUnknown
 	}
 	if t.Bid <= 0 || t.Ask <= 0 || t.Ask < t.Bid {
+		classifierUnknown.WithLabelValues("crossed_or_missing_quote").Inc()
 		return feed.AggressorUnknown
 	}
 
@@ -74,12 +87,14 @@ func (c *Classifier) Classify(t feed.Tick) feed.Aggressor {
 		last, ok := c.lookupLast(k)
 		switch {
 		case !ok:
+			classifierUnknown.WithLabelValues("no_prior_trade").Inc()
 			ag = feed.AggressorUnknown
 		case last < t.Price:
 			ag = feed.AggressorBuy
 		case last > t.Price:
 			ag = feed.AggressorSell
 		default:
+			classifierUnknown.WithLabelValues("equal_to_prior").Inc()
 			ag = feed.AggressorUnknown
 		}
 	}
