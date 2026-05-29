@@ -96,3 +96,20 @@ func (p *PositionTracker) Snapshot(symbol feed.Symbol) []StrikeRow {
 	}
 	return out
 }
+
+// PruneExpired removes every dealer-position entry whose expiry is
+// strictly before today (YYYYMMDD format, matching feed.Tick.Expiry).
+// Returns the number of entries evicted. Caller drives this from a
+// session-boundary tick — typically once per day at SOD — so the
+// per-strike map doesn't accumulate dead 0DTE contracts on a
+// long-running ingest. Single-threaded by the same invariant as Apply.
+func (p *PositionTracker) PruneExpired(today uint32) int {
+	var n int
+	for k := range p.pos {
+		if k.Expiry < today {
+			delete(p.pos, k)
+			n++
+		}
+	}
+	return n
+}

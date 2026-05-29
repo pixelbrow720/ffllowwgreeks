@@ -106,3 +106,28 @@ func (c *Classifier) lookupLast(k strikeKey) (float64, bool) {
 	}
 	return 0, false
 }
+
+// PruneExpired removes every last-trade-price entry whose expiry is
+// strictly before today (YYYYMMDD format). Returns the number of
+// entries evicted across both generations. Caller drives this from a
+// session-boundary tick so the maps don't accumulate dead 0DTE
+// contracts on a long-running ingest. Single-threaded by the same
+// invariant as Classify.
+func (c *Classifier) PruneExpired(today uint32) int {
+	var n int
+	for k := range c.curr {
+		if k.Expiry < today {
+			delete(c.curr, k)
+			n++
+		}
+	}
+	if c.prev != nil {
+		for k := range c.prev {
+			if k.Expiry < today {
+				delete(c.prev, k)
+				n++
+			}
+		}
+	}
+	return n
+}

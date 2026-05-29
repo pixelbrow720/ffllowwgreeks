@@ -90,3 +90,21 @@ func (c *QuoteCache) Len() int {
 	defer c.mu.RUnlock()
 	return len(c.m)
 }
+
+// PruneExpired removes every cached quote whose expiry is strictly
+// before today (YYYYMMDD format, matching feed.Tick.Expiry encoding).
+// Returns the number of entries evicted. Caller drives this from a
+// session-boundary tick — typically once per day at SOD — so the cache
+// doesn't accumulate dead 0DTE contracts on a long-running ingest.
+func (c *QuoteCache) PruneExpired(today uint32) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var n int
+	for k := range c.m {
+		if k.expiry < today {
+			delete(c.m, k)
+			n++
+		}
+	}
+	return n
+}
