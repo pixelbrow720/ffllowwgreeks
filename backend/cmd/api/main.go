@@ -230,6 +230,40 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	// Admin listener: separate http.Server bound by default to loopback
+	// so it never lands on the public mux. Started only when ADMIN_TOKEN
+	// is set so dev / CI don't have to provision a token. flowjob.id
+	// reaches it via tunnel/SSH/internal mesh.
+	var adminSrv *http.Server
+	if cfg.Admin.Token != "" && sharedPool != nil {
+		ar := chi.NewRouter()
+		ar.Use(middleware.RequestID)
+		ar.Use(middleware.Recoverer)
+		(&api.Admin{
+			Store: apikey.NewPgStore(sharedPool),
+			Token: cfg.Admin.Token,
+			Audit: apiKeyAudit,
+		}).Mount(ar)
+		adminSrv = &http.Server{
+			Addr:              cfg.Admin.ListenAddr,
+			Handler:           ar,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
+			WriteTimeout:      10 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+		go func() {
+			log.Info("admin listening", "addr", cfg.Admin.ListenAddr)
+			if err := adminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("admin listener failed", "addr", cfg.Admin.ListenAddr, "err", err)
+			}
+		}()
+	} else if cfg.Admin.Token == "" {
+		log.Info("admin server disabled (ADMIN_TOKEN unset)")
+	} else {
+		log.Warn("admin server disabled (no postgres pool)")
+	}
+
 	serverErr := make(chan error, 1)
 	go func() {
 		log.Info("api listening", "addr", cfg.API.ListenAddr)
@@ -268,6 +302,15 @@ func main() {
 	// Phase 2: stop accepting new connections, finish in-flight ones.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
+	if adminSrv != nil {
+		// Drain admin first; it's loopback-only and short-lived so a
+		// strict 5s budget is plenty.
+		adminCtx, adminCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := adminSrv.Shutdown(adminCtx); err != nil {
+			log.Warn("admin graceful shutdown failed", "err", err)
+		}
+		adminCancel()
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)

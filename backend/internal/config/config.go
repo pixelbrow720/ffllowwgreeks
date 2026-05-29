@@ -23,6 +23,7 @@ type Config struct {
 	API       APIConfig
 	Log       LogConfig
 	APIKey    APIKeyConfig
+	Admin     AdminConfig
 }
 
 // APIKeyConfig controls the API-key auth surface. FlowGreeks runs as
@@ -33,6 +34,19 @@ type Config struct {
 // key; when false the routes are open (development).
 type APIKeyConfig struct {
 	Enabled bool
+}
+
+// AdminConfig controls the operator-only admin surface. The admin
+// listener is a separate http.Server bound by default to loopback.
+// flowjob.id (the parent product) reaches it via tunnel/SSH/internal
+// mesh — never over the public internet — to list and revoke API keys.
+//
+// Token gates every request via Authorization: Bearer <token> with a
+// constant-time compare. Empty Token disables the admin server entirely
+// so dev / tests don't have to set anything.
+type AdminConfig struct {
+	ListenAddr string
+	Token      string
 }
 
 type DatabentoConfig struct {
@@ -147,6 +161,10 @@ func Load() (*Config, error) {
 		},
 		APIKey: APIKeyConfig{
 			Enabled: getEnv("APIKEY_ENABLED", "false") == "true",
+		},
+		Admin: AdminConfig{
+			ListenAddr: getEnv("ADMIN_LISTEN_ADDR", "127.0.0.1:9090"),
+			Token:      os.Getenv("ADMIN_TOKEN"),
 		},
 	}
 

@@ -35,6 +35,12 @@ const (
 	AuditAuthExpired       AuditKind = "apikey.auth.expired"
 	AuditAuthLookupFailed  AuditKind = "apikey.auth.lookup_failed"
 	AuditAuthRateLimited   AuditKind = "apikey.auth.rate_limited"
+
+	// Operator-only admin surface (loopback listener, shared-token gated).
+	// AdminList is INFO; AdminRevoke escalates to WARN because key
+	// revocation is a security-meaningful mutation worth a SIEM rule.
+	AuditAdminList         AuditKind = "admin.list"
+	AuditAdminRevoke       AuditKind = "admin.revoke"
 )
 
 // AuditSink receives events. Implementations must not block the
@@ -61,7 +67,8 @@ func (s *SlogAuditSink) Emit(ctx context.Context, ev AuditEvent) {
 	level := slog.LevelInfo
 	switch ev.Kind {
 	case AuditAuthMissing, AuditAuthUnknown, AuditAuthRevoked,
-		AuditAuthExpired, AuditAuthLookupFailed, AuditAuthRateLimited:
+		AuditAuthExpired, AuditAuthLookupFailed, AuditAuthRateLimited,
+		AuditAdminRevoke:
 		level = slog.LevelWarn
 	}
 	ua := ev.UserAgent

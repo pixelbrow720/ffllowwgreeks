@@ -2,6 +2,7 @@ package apikey
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 )
@@ -69,6 +70,38 @@ func (s *MemoryStore) TouchLastUsed(_ context.Context, id int64) error {
 		}
 	}
 	return nil
+}
+
+func (s *MemoryStore) GetByID(_ context.Context, id int64) (APIKey, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, k := range s.rows {
+		if k.ID == id {
+			return k, nil
+		}
+	}
+	return APIKey{}, ErrUnknownKey
+}
+
+func (s *MemoryStore) ListPaged(_ context.Context, cursor int64, limit int) ([]APIKey, int64, error) {
+	if limit <= 0 {
+		return nil, 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows := make([]APIKey, 0, len(s.rows))
+	for _, k := range s.rows {
+		if k.ID > cursor {
+			rows = append(rows, k)
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
+	var next int64
+	if len(rows) > limit {
+		next = rows[limit-1].ID
+		rows = rows[:limit]
+	}
+	return rows, next, nil
 }
 
 func equalBytes(a, b []byte) bool {
