@@ -109,7 +109,15 @@ func (m *Middleware) audit(r *http.Request, kind AuditKind, keyID int64, detail 
 }
 
 // extractSecret parses the inbound credential. Bearer wins over
-// X-API-Key when both are present (the more standard form).
+// X-API-Key when both are present (the more standard form). For
+// WebSocket upgrade requests, the `?api_key=` query parameter is
+// also accepted as a last-resort fallback because browsers cannot
+// set custom headers on the WS upgrade handshake — this is the only
+// way an in-browser dashboard can authenticate to /ws/live.
+//
+// Query-param fallback is intentionally NOT honoured on regular
+// HTTP requests: api keys in URLs end up in proxy logs, browser
+// history, and Referer headers.
 func extractSecret(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); h != "" {
 		const prefix = "Bearer "
@@ -117,7 +125,32 @@ func extractSecret(r *http.Request) string {
 			return strings.TrimSpace(h[len(prefix):])
 		}
 	}
-	return strings.TrimSpace(r.Header.Get("X-API-Key"))
+	if h := strings.TrimSpace(r.Header.Get("X-API-Key")); h != "" {
+		return h
+	}
+	if isWebSocketUpgrade(r) {
+		return strings.TrimSpace(r.URL.Query().Get("api_key"))
+	}
+	return ""
+}
+
+// isWebSocketUpgrade reports whether the request is a RFC 6455
+// upgrade. Header values are token lists, so we have to walk them
+// case-insensitively rather than do a single byte comparison.
+func isWebSocketUpgrade(r *http.Request) bool {
+	if !headerHasToken(r.Header.Get("Connection"), "upgrade") {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket")
+}
+
+func headerHasToken(value, want string) bool {
+	for _, tok := range strings.Split(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(tok), want) {
+			return true
+		}
+	}
+	return false
 }
 
 // clientIP returns the host portion of r.RemoteAddr. Upstream the api

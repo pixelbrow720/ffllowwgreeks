@@ -164,6 +164,96 @@ func TestExtractSecret_TolerantOfBearerCase(t *testing.T) {
 	}
 }
 
+// Browsers cannot set Authorization or X-API-Key on a WebSocket
+// upgrade handshake, so for /ws/* the api_key query parameter is the
+// only credential channel. The fallback must NOT fire on regular HTTP
+// requests — that would push secrets into proxy logs and Referer
+// headers.
+func TestExtractSecret_QueryParamHonoredOnWSUpgrade(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/ws/live?api_key=ws-secret", nil)
+	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	if got := extractSecret(r); got != "ws-secret" {
+		t.Errorf("ws upgrade got %q, want ws-secret", got)
+	}
+}
+
+func TestExtractSecret_QueryParamIgnoredOnPlainHTTP(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/snapshot/spx?api_key=should-not-fire", nil)
+	if got := extractSecret(r); got != "" {
+		t.Errorf("plain http got %q, want empty", got)
+	}
+}
+
+func TestExtractSecret_HeadersWinOverQueryOnWSUpgrade(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/ws/live?api_key=from-query", nil)
+	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Authorization", "Bearer from-header")
+	if got := extractSecret(r); got != "from-header" {
+		t.Errorf("got %q, want from-header (header should win)", got)
+	}
+}
+
+func TestExtractSecret_QueryParamRequiresUpgradeHeaderPair(t *testing.T) {
+	// Connection: Upgrade alone (no Upgrade: websocket) must not unlock the fallback.
+	r := httptest.NewRequest(http.MethodGet, "/ws/live?api_key=should-not-fire", nil)
+	r.Header.Set("Connection", "Upgrade")
+	if got := extractSecret(r); got != "" {
+		t.Errorf("connection-only got %q, want empty", got)
+	}
+	// Upgrade: websocket alone (no Connection: Upgrade) must not unlock either.
+	r2 := httptest.NewRequest(http.MethodGet, "/ws/live?api_key=should-not-fire", nil)
+	r2.Header.Set("Upgrade", "websocket")
+	if got := extractSecret(r2); got != "" {
+		t.Errorf("upgrade-only got %q, want empty", got)
+	}
+}
+
+func TestExtractSecret_ConnectionHeaderTokenList(t *testing.T) {
+	// Real browsers often send "Connection: keep-alive, Upgrade".
+	// We must walk the comma-separated token list, not byte-compare.
+	r := httptest.NewRequest(http.MethodGet, "/ws/live?api_key=ws-secret", nil)
+	r.Header.Set("Connection", "keep-alive, Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	if got := extractSecret(r); got != "ws-secret" {
+		t.Errorf("token-list got %q, want ws-secret", got)
+	}
+}
+
+func TestMiddleware_AcceptsQueryParamOnWSUpgrade(t *testing.T) {
+	mw, _, secret := newTestMW(t)
+	called := false
+	h := mw.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	}))
+	r := httptest.NewRequest(http.MethodGet, "/ws/live?api_key="+secret, nil)
+	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if !called {
+		t.Fatal("downstream handler never reached")
+	}
+	if w.Code != http.StatusSwitchingProtocols {
+		t.Errorf("status %d, want 101", w.Code)
+	}
+}
+
+func TestMiddleware_RejectsQueryParamOnPlainHTTP(t *testing.T) {
+	mw, _, secret := newTestMW(t)
+	h := mw.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("downstream reached — query-param auth must NOT work on plain HTTP")
+	}))
+	r := httptest.NewRequest(http.MethodGet, "/api/snapshot/spx?api_key="+secret, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status %d, want 401", w.Code)
+	}
+}
+
 func TestGenerate_DistinctSecrets(t *testing.T) {
 	a, _, _ := Generate()
 	b, _, _ := Generate()
