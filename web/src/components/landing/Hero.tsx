@@ -147,7 +147,7 @@ function Row({
     default: "text-ink-high",
     down: "text-accent-short",
     brand: "text-brand-hi",
-    pin: "text-signal-pin",
+    pin: "text-accent-warn",
   };
   return (
     <div className="flex items-center justify-between">

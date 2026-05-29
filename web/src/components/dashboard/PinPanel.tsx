@@ -6,15 +6,18 @@ import { cn, fmtSignedAbbr } from "@/lib/utils";
 import type { Snapshot } from "@/lib/api/types";
 
 // PinPanel — right-rail strip. Pin candidate, expected move, charm zone.
-// Replaces ForcedFlow (which read mock-only scenarios). Pin earns the
-// accent-warn amber per the rule book ("pin proximity, charm flip warn").
+// When pin probability ≥ 50% the panel surface lifts to glass-warn —
+// matches the rule book's amber=pin convention but as decorative chrome,
+// not data ink.
 export function PinPanel({ symbol }: { symbol: "SPX" | "NDX" }) {
   const { snapshot, status, error } = useSnapshot(symbol);
+  const hot = snapshot?.pin.active === true && snapshot.pin.top_probability >= 0.5;
 
   return (
     <Panel
       title="Pin · Move · Charm"
       subtitle="0DTE forced-flow signals"
+      tone={hot ? "glass-warn" : "default"}
       contentClassName="p-0 flex flex-col"
     >
       {snapshot ? <Body snapshot={snapshot} /> : <Placeholder status={status} message={error?.message} />}
@@ -49,7 +52,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
       >
         <div className="flex items-baseline justify-between">
           <div className="flex items-baseline gap-2">
-            <span className="tabnum text-3xl font-medium leading-none text-ink-high">
+            <span className="font-display tabnum text-[34px] font-medium leading-none tracking-[-0.02em] text-ink-high">
               {pinStrike > 0 ? pinStrike : "—"}
             </span>
             <span className="tabnum text-[11px] text-ink-muted">
@@ -60,7 +63,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
           </div>
           <span
             className={cn(
-              "tabnum text-2xl font-medium leading-none",
+              "font-display tabnum text-[28px] font-medium leading-none tracking-[-0.02em]",
               pinHot ? "text-accent-warn" : "text-ink-base",
             )}
           >
@@ -80,7 +83,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
       {/* Expected move */}
       <Section label="Expected move (1\u03C3 to close)">
         <div className="flex items-baseline gap-3">
-          <span className="tabnum text-3xl font-medium leading-none text-ink-high">
+          <span className="font-display tabnum text-[28px] font-medium leading-none tracking-[-0.02em] text-ink-high">
             {expectedMv > 0 ? `\u00B1${expectedMv.toFixed(2)}` : "—"}
           </span>
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
@@ -123,7 +126,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
                   "flex-1 py-1 text-center font-mono text-[8.5px] uppercase tracking-[0.18em]",
                   active
                     ? z === "PEAK"
-                      ? "bg-accent-warn/15 text-accent-warn"
+                      ? "bg-accent-warn/15 text-accent-warn shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]"
                       : "bg-bg-card text-ink-high"
                     : "bg-bg-subtle/30 text-ink-ghost",
                 )}
@@ -145,7 +148,7 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
           </span>
           <span
             className={cn(
-              "tabnum text-[18px] font-medium",
+              "font-display tabnum text-[20px] font-medium leading-none tracking-[-0.02em]",
               snapshot.flow_pulse.total < 0 ? "text-accent-short" : "text-accent-long",
             )}
           >
@@ -199,9 +202,6 @@ function Sub({ label, value }: { label: string; value: string }) {
 
 function PulseBar({ label, value }: { label: string; value: number }) {
   const pos = value >= 0;
-  // Pulse magnitudes range from ~0 at session open to ~1e10 by close.
-  // Normalize on a log scale so a 1B pulse and a 10B pulse are visibly
-  // different (linear-on-1e9 saturates the bar in the first 5 minutes).
   const mag = Math.abs(value);
   const pct = mag > 0 ? Math.min(100, (Math.log10(mag + 1) / 11) * 100) : 0;
   return (

@@ -25,14 +25,13 @@ const EMPTY_SPOT_SERIES: ReadonlyArray<SpotPoint> = Object.freeze([]);
 
 const SPOT_MAX = 120;
 
-// RTH-only filter. User asked the dashboard to drop pre-RTH samples so
-// the chart only shows the regular session. SPX cash opens 09:30 ET; in
-// Feb 2026 (EST) that maps to 14:30 UTC. The operator asked for 20:30
-// WIB (= 13:30 UTC) as their cutoff — keep 13:30 UTC here. Both
-// timestamps are below the OI seed at 11:30 UTC, so the backend still
-// gets a full position seed; only the front-end chart hides the early
-// noise.
-const RTH_START_MIN_UTC = 13 * 60 + 30;
+// RTH-only filter. User asked the dashboard to start at 23:00 WIB
+// (= 16:00 UTC) which is ~30 min into the regular cash session, so the
+// chart skips the open-print noise and starts when dealer flow has had
+// time to settle. The backend still ingests the full window from
+// 11:29 UTC (OI seed) so the position tracker is fully populated by
+// the time we render anything.
+const RTH_START_MIN_UTC = 16 * 60;
 
 function isInRTH(tsNs: number): boolean {
   const d = new Date(Math.floor(tsNs / 1e6));

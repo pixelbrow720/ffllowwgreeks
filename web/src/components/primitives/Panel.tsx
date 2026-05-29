@@ -9,11 +9,22 @@ interface PanelProps {
   contentClassName?: string;
   children: ReactNode;
   noPad?: boolean;
+  tone?: "default" | "glass-brand" | "glass-warn";
 }
 
 // Panel — terminal-grade card primitive. Sharp corners, single hairline,
 // no soft shadow. The header strip is a 28px monospace caption that does
 // not compete with the data inside.
+//
+// Tone variants:
+//   default     — opaque bg-bg-card, hairline border. Use for >90% of panels.
+//   glass-brand — focal moment: brand hairline + subtle inward glow.
+//                 Reserve for hero number callouts (DPI when FORCED).
+//   glass-warn  — secondary focal: amber. Reserve for PinPanel when HOT.
+//
+// The glass tones intentionally LIFT the panel surface above the
+// dashboard backdrop. Per CLAUDE.md, brand pink is decorative ambient
+// only — these tones live in the *chrome*, not in the data ink.
 export function Panel({
   title,
   subtitle,
@@ -22,11 +33,20 @@ export function Panel({
   contentClassName,
   children,
   noPad = false,
+  tone = "default",
 }: PanelProps) {
+  const toneCls =
+    tone === "glass-brand"
+      ? "glass-brand backdrop-blur-xl"
+      : tone === "glass-warn"
+        ? "glass-warn backdrop-blur-xl"
+        : "bg-bg-card";
+
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col overflow-hidden border border-line bg-bg-card",
+        "relative flex h-full min-h-0 flex-col overflow-hidden border border-line",
+        toneCls,
         className,
       )}
     >

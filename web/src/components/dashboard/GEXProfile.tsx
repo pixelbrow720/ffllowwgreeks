@@ -4,18 +4,25 @@ import { useState } from "react";
 import { Panel, Pill } from "@/components/primitives/Panel";
 import { useSnapshot } from "@/lib/api/snapshot";
 import { fmtSignedAbbr } from "@/lib/utils";
+import { StrikeTooltip } from "@/components/primitives/StrikeTooltip";
+import type { StrikeRow as ApiStrikeRow } from "@/lib/api/types";
 
 interface Row {
   strike: number;
   side: "C" | "P";
   gexM: number; // GEX in $M
+  gexUsd: number; // GEX in raw $
   isCallWall: boolean;
   isPutWall: boolean;
   isPin: boolean;
+  callRow?: ApiStrikeRow;
+  putRow?: ApiStrikeRow;
+  // amplifyTier — 0 = far, 1 = near (within ±0.5%), 2 = at-the-money row
+  amplifyTier: 0 | 1 | 2;
 }
 
 export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const [hover, setHover] = useState<{ strike: number; y: number } | null>(null);
   const { snapshot, status, error } = useSnapshot(symbol);
 
   if (!snapshot) {
@@ -26,24 +33,51 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
     );
   }
 
-  // Aggregate strike → net GEX (sum across sides), keep dominant side label.
-  const map = new Map<number, { net: number; bySide: { C: number; P: number } }>();
+  // Aggregate strike → net GEX (sum across sides), keep dominant side label,
+  // and retain the original wire rows so the tooltip can decompose by leg.
+  const map = new Map<
+    number,
+    {
+      net: number;
+      netUsd: number;
+      bySide: { C: number; P: number };
+      callRow?: ApiStrikeRow;
+      putRow?: ApiStrikeRow;
+    }
+  >();
   snapshot.strikes.forEach((s) => {
-    const cur = map.get(s.strike) ?? { net: 0, bySide: { C: 0, P: 0 } };
+    const cur = map.get(s.strike) ?? {
+      net: 0,
+      netUsd: 0,
+      bySide: { C: 0, P: 0 },
+    };
     cur.net += s.gex_notional / 1e6;
+    cur.netUsd += s.gex_notional;
     cur.bySide[s.side] += s.gex_notional / 1e6;
+    if (s.side === "C") cur.callRow = s;
+    else cur.putRow = s;
     map.set(s.strike, cur);
   });
 
+  const spot = snapshot.spot;
   const rows: Row[] = Array.from(map.entries())
-    .map(([strike, v]) => ({
-      strike,
-      side: (v.bySide.C < v.bySide.P ? "P" : "C") as "C" | "P",
-      gexM: v.net,
-      isCallWall: strike === snapshot.call_wall,
-      isPutWall: strike === snapshot.put_wall,
-      isPin: snapshot.pin.active && strike === snapshot.pin.top_strike,
-    }))
+    .map(([strike, v]) => {
+      const distPct = spot > 0 ? Math.abs(strike - spot) / spot : 1;
+      const amplifyTier: 0 | 1 | 2 =
+        distPct < 0.0015 ? 2 : distPct < 0.005 ? 1 : 0;
+      return {
+        strike,
+        side: (v.bySide.C < v.bySide.P ? "P" : "C") as "C" | "P",
+        gexM: v.net,
+        gexUsd: v.netUsd,
+        isCallWall: strike === snapshot.call_wall,
+        isPutWall: strike === snapshot.put_wall,
+        isPin: snapshot.pin.active && strike === snapshot.pin.top_strike,
+        callRow: v.callRow,
+        putRow: v.putRow,
+        amplifyTier,
+      };
+    })
     .sort((a, b) => b.strike - a.strike);
 
   if (rows.length === 0) {
@@ -55,32 +89,44 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
   }
 
   const maxAbs = Math.max(...rows.map((r) => Math.abs(r.gexM))) || 1;
-  const spot = snapshot.spot;
 
-  // SVG layout
+  // SVG layout. Variable row height per amplifyTier:
+  // tier 2 (ATM) = 26, tier 1 (near spot) = 24, tier 0 = 20.
   const W = 720;
-  const rowH = 22;
   const PAD = { l: 64, r: 80, t: 14, b: 22 };
-  const H = PAD.t + PAD.b + rows.length * rowH;
+
+  let runningY = PAD.t;
+  const rowsWithY = rows.map((r) => {
+    const h = r.amplifyTier === 2 ? 26 : r.amplifyTier === 1 ? 24 : 20;
+    const y = runningY;
+    runningY += h;
+    return { ...r, y, h };
+  });
+  const H = runningY + PAD.b;
   const plotW = W - PAD.l - PAD.r;
   const center = PAD.l + plotW / 2;
 
   const xOf = (gexM: number) => center + (gexM / maxAbs) * (plotW / 2);
 
   // Find virtual y of spot between two adjacent strikes.
-  const sortedAsc = [...rows].sort((a, b) => a.strike - b.strike);
+  const sortedAsc = [...rowsWithY].sort((a, b) => a.strike - b.strike);
   let spotY = PAD.t;
   for (let i = 0; i < sortedAsc.length - 1; i++) {
-    const lo = sortedAsc[i].strike;
-    const hi = sortedAsc[i + 1].strike;
-    if (spot >= lo && spot <= hi) {
-      const t = (spot - lo) / (hi - lo);
-      const yLo = PAD.t + (rows.length - 1 - i) * rowH + rowH / 2;
-      const yHi = PAD.t + (rows.length - 1 - (i + 1)) * rowH + rowH / 2;
+    const lo = sortedAsc[i];
+    const hi = sortedAsc[i + 1];
+    if (spot >= lo.strike && spot <= hi.strike) {
+      const t = (spot - lo.strike) / (hi.strike - lo.strike);
+      const yLo = lo.y + lo.h / 2;
+      const yHi = hi.y + hi.h / 2;
       spotY = yLo + (yHi - yLo) * t;
       break;
     }
   }
+
+  // Tooltip positioning — anchor to right of the visible bar area.
+  const tooltipRow = hover
+    ? rowsWithY.find((r) => r.strike === hover.strike)
+    : null;
 
   return (
     <Panel
@@ -90,11 +136,11 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
         <div className="flex items-center gap-2.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-muted">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-1 w-3 bg-accent-long" />
-            long \u03B3
+            long {"\u03B3"}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-1 w-3 bg-accent-short" />
-            short \u03B3
+            short {"\u03B3"}
           </span>
           <Pill tone={snapshot.net_gex < 0 ? "down" : "up"}>
             net {fmtSignedAbbr(snapshot.net_gex)}
@@ -173,7 +219,7 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
             );
           })}
 
-          {/* spot crosshair — monochrome ink-high */}
+          {/* spot crosshair — monochrome ink-high, prominent */}
           <line
             x1={PAD.l}
             y1={spotY}
@@ -205,30 +251,56 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
           </text>
 
           {/* rows */}
-          {rows.map((r, i) => {
-            const y = PAD.t + i * rowH;
-            const cy = y + rowH / 2;
-            const isHover = hover === r.strike;
+          {rowsWithY.map((r) => {
+            const y = r.y;
+            const cy = y + r.h / 2;
+            const isHover = hover?.strike === r.strike;
 
             const barX = r.gexM < 0 ? xOf(r.gexM) : center;
             const barW = Math.abs(xOf(r.gexM) - center);
             const fill = r.gexM < 0 ? "url(#gexNeg)" : "url(#gexPos)";
+            const barH = r.amplifyTier === 2 ? 16 : r.amplifyTier === 1 ? 14 : 12;
+
+            // Near-spot rows get a subtle inkLayer tint for amplification.
+            const tintOpacity =
+              r.amplifyTier === 2 ? 0.06 : r.amplifyTier === 1 ? 0.03 : 0;
+
+            const labelFill =
+              isHover || r.isPutWall || r.isCallWall || r.isPin
+                ? "#f4f4f5"
+                : r.amplifyTier > 0
+                  ? "#e4e4e7"
+                  : "#a1a1aa";
+            const labelFontSize = r.amplifyTier === 2 ? 12.5 : r.amplifyTier === 1 ? 11.5 : 11;
+            const labelWeight = r.isPutWall || r.isCallWall || r.isPin || r.amplifyTier === 2 ? "600" : "400";
 
             return (
               <g
                 key={r.strike}
-                onMouseEnter={() => setHover(r.strike)}
+                onMouseEnter={() => setHover({ strike: r.strike, y: cy })}
                 onMouseLeave={() => setHover(null)}
                 className="cursor-default"
               >
+                {/* row tint for ATM amplification */}
+                {tintOpacity > 0 && (
+                  <rect
+                    x={PAD.l - 60}
+                    y={y}
+                    width={W - PAD.l - PAD.r + 130}
+                    height={r.h}
+                    fill="#fff"
+                    opacity={tintOpacity}
+                  />
+                )}
+
                 {isHover && (
                   <rect
                     x={PAD.l - 60}
                     y={y}
                     width={W - PAD.l - PAD.r + 130}
-                    height={rowH}
+                    height={r.h}
                     fill="#fff"
-                    opacity="0.025"
+                    opacity="0.04"
                   />
                 )}
 
@@ -236,14 +308,10 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
                   x={PAD.l - 10}
                   y={cy + 3}
                   textAnchor="end"
-                  fontSize="11"
-                  fill={
-                    isHover || r.isPutWall || r.isCallWall || r.isPin
-                      ? "#f4f4f5"
-                      : "#a1a1aa"
-                  }
+                  fontSize={labelFontSize}
+                  fill={labelFill}
                   fontFamily="var(--font-jb-mono)"
-                  fontWeight={r.isPutWall || r.isCallWall || r.isPin ? "600" : "400"}
+                  fontWeight={labelWeight}
                 >
                   {r.strike}
                 </text>
@@ -275,9 +343,9 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
 
                 <rect
                   x={barX}
-                  y={cy - 6}
+                  y={cy - barH / 2}
                   width={Math.max(2, barW)}
-                  height={12}
+                  height={barH}
                   fill={fill}
                   opacity={isHover ? 1 : 0.92}
                 />
@@ -286,7 +354,7 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
                   x={r.gexM < 0 ? barX - 6 : barX + barW + 6}
                   y={cy + 3}
                   textAnchor={r.gexM < 0 ? "end" : "start"}
-                  fontSize="10"
+                  fontSize={r.amplifyTier === 2 ? 11 : 10}
                   fill={isHover ? "#f4f4f5" : "#71717a"}
                   fontFamily="var(--font-jb-mono)"
                   fontWeight="500"
@@ -298,6 +366,21 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
             );
           })}
         </svg>
+
+        {/* Hover popover. Position relative to the scrollable container,
+            so left/top map to the SVG's natural coords scaled by the
+            container width ratio. We keep it simple: anchor near the
+            right side of the bar area. */}
+        {tooltipRow && hover && (
+          <div className="pointer-events-none absolute inset-0">
+            <StrikeTooltipPosition
+              row={tooltipRow}
+              spot={spot}
+              snapshot={snapshot}
+              svgH={H}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center justify-between border-t border-line px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
@@ -317,6 +400,69 @@ export function GEXProfile({ symbol }: { symbol: "SPX" | "NDX" }) {
         </span>
       </div>
     </Panel>
+  );
+}
+
+// StrikeTooltipPosition — translates the SVG-coord row position into the
+// container's CSS coords. The SVG renders with width=100% so the natural
+//-to-css ratio is just `containerWidth / W`. The popover gets positioned
+// to the right of the row label area for hover affordance.
+function StrikeTooltipPosition({
+  row,
+  spot,
+  snapshot,
+  svgH,
+}: {
+  row: ReturnType<typeof Object.assign> & {
+    strike: number;
+    gexUsd: number;
+    isCallWall: boolean;
+    isPutWall: boolean;
+    isPin: boolean;
+    callRow?: ApiStrikeRow;
+    putRow?: ApiStrikeRow;
+    y: number;
+    h: number;
+  };
+  spot: number;
+  snapshot: ReturnType<typeof useSnapshot>["snapshot"];
+  svgH: number;
+}) {
+  // Place tooltip vertically at the row mid-y, horizontally a bit right of
+  // the strike-label column so it doesn't cover the bar. Convert from SVG
+  // coords to container percentage.
+  const cy = row.y + row.h / 2;
+  // Anchor at ~52% across the SVG horizontally and use percentage so the
+  // popover stays correctly placed regardless of container width.
+  const leftPct = 52;
+  const topPct = (cy / svgH) * 100;
+
+  // If row is in the bottom third, flip popover above to avoid clipping.
+  const flipUp = topPct > 70;
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: `${leftPct}%`,
+        top: `${topPct}%`,
+        transform: flipUp ? "translate(0, -100%)" : "translate(0, 0)",
+      }}
+    >
+      <StrikeTooltip
+        strike={row.strike}
+        spot={spot}
+        netGexUsd={row.gexUsd}
+        callRow={row.callRow}
+        putRow={row.putRow}
+        isCallWall={row.isCallWall}
+        isPutWall={row.isPutWall}
+        isPin={row.isPin}
+        pinProb={snapshot?.pin.top_probability}
+        x={0}
+        y={0}
+      />
+    </div>
   );
 }
 

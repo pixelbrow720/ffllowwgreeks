@@ -5,18 +5,27 @@ import { useSnapshot } from "@/lib/api/snapshot";
 import { cn, fmtSignedAbbr } from "@/lib/utils";
 import type { Snapshot } from "@/lib/api/types";
 
-// DPILive — left-rail composite + 5-component breakdown. Replaces the
-// brand-pink DPIGauge. Wired to the live snapshot. The composite number
-// dominates; the components are scan-rows below.
+// DPILive — left-rail composite + 5-component breakdown. The DPI
+// composite number is the focal point of the entire dashboard:
+//   - 64px font-display, gradient text when FORCED (≥75)
+//   - panel surface lifts to glass-brand when FORCED (decorative chrome,
+//     not data — per CLAUDE.md brand pink rule)
+//   - components use ink-base bars; only the magnitude bar above 75 burns
+//     accent-warn
+// The footer adds a flow-pulse mini-row + a session-meta scan line so the
+// 720px tall left rail isn't half empty.
 export function DPILive({ symbol }: { symbol: "SPX" | "NDX" }) {
   const { snapshot, status, error } = useSnapshot(symbol);
+  const dpi = snapshot?.dpi.composite ?? 0;
+  const focal = snapshot !== null && dpi >= 75;
 
   return (
     <Panel
       title="DPI"
       subtitle="Dealer Positioning Index"
+      tone={focal ? "glass-brand" : "default"}
       actions={<ZoneBadge snapshot={snapshot} />}
-      contentClassName="p-3 flex flex-col gap-4"
+      contentClassName="p-3 flex flex-col gap-3.5"
     >
       {snapshot ? <Body snapshot={snapshot} /> : <Placeholder status={status} message={error?.message} />}
     </Panel>
@@ -28,11 +37,8 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
   const tier = dpi >= 75 ? "FORCED" : dpi >= 50 ? "ELEVATED" : dpi >= 25 ? "BUILDING" : "STABLE";
   const tierTone =
     dpi >= 75 ? "text-accent-warn" : dpi >= 50 ? "text-ink-high" : "text-ink-muted";
+  const focal = dpi >= 75;
 
-  // The wire format ships every DPI component on the same 0-100 magnitude
-  // scale; sign convention lives in `regime` (and net_gex). The Net γ
-  // chip therefore reads its direction from regime + net_gex, while its
-  // magnitude bar uses the dpi.net_gamma_sign component value.
   const gammaDir: "long" | "short" | "neutral" =
     snapshot.regime === "LONG_GAMMA"
       ? "long"
@@ -54,8 +60,17 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
 
   return (
     <>
-      <div className="flex items-baseline gap-3">
-        <span className="tabnum text-[44px] font-medium leading-none text-ink-high">
+      {/* hero composite — 64px font-display */}
+      <div className="relative flex items-baseline gap-3 pt-1">
+        {focal && (
+          <div className="pointer-events-none absolute -inset-x-2 -inset-y-1 -z-10 rounded-md bg-gradient-to-br from-brand/20 via-transparent to-transparent blur-2xl" />
+        )}
+        <span
+          className={cn(
+            "font-display tabnum text-[58px] font-medium leading-[0.92] tracking-[-0.03em]",
+            focal ? "text-gradient-brand" : "text-ink-high",
+          )}
+        >
           {dpi.toFixed(1)}
         </span>
         <div className="flex flex-col leading-tight">
@@ -73,17 +88,16 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </div>
 
-      {/* Composite scale */}
+      {/* composite scale */}
       <div className="space-y-1">
         <div className="relative h-1 overflow-hidden bg-bg-subtle">
           <div
             className={cn(
-              "absolute inset-y-0 left-0",
+              "absolute inset-y-0 left-0 transition-all duration-500",
               dpi >= 75 ? "bg-accent-warn" : "bg-ink-base",
             )}
             style={{ width: `${Math.min(100, Math.max(0, dpi))}%` }}
           />
-          {/* 50 / 75 thresholds */}
           <span className="absolute inset-y-0 left-1/2 w-px bg-line" />
           <span className="absolute inset-y-0 left-3/4 w-px bg-accent-warn/60" />
         </div>
@@ -95,10 +109,10 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </div>
 
-      {/* Components */}
+      {/* components */}
       <div className="space-y-1.5">
         {rows.map((r) => (
-          <div key={r.label} className="grid grid-cols-[80px_1fr_44px] items-center gap-2">
+          <div key={r.label} className="grid grid-cols-[78px_1fr_44px] items-center gap-2">
             <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
               {r.label}
             </span>
@@ -125,23 +139,45 @@ function Body({ snapshot }: { snapshot: Snapshot }) {
         ))}
       </div>
 
-      {/* Flow pulse footer */}
-      <div className="grid grid-cols-3 gap-2 border-t border-line/70 pt-3">
+      {/* flow pulse footer */}
+      <div className="grid grid-cols-3 gap-2 border-t border-line/70 pt-2.5">
         <Mini label="\u03B3" value={snapshot.flow_pulse.gamma} />
         <Mini label="Charm" value={snapshot.flow_pulse.charm} />
         <Mini label="Vanna" value={snapshot.flow_pulse.vanna} />
       </div>
 
-      <div className="border-t border-line/70 pt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-        Total flow{" "}
-        <span
-          className={cn(
-            "tabnum",
-            snapshot.flow_pulse.total < 0 ? "text-accent-short" : "text-accent-long",
-          )}
-        >
-          {fmtSignedAbbr(snapshot.flow_pulse.total)}
-        </span>
+      {/* total flow + session meta */}
+      <div className="space-y-1.5 border-t border-line/70 pt-2.5">
+        <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+          <span>Total flow</span>
+          <span
+            className={cn(
+              "tabnum text-[13px] font-medium",
+              snapshot.flow_pulse.total < 0 ? "text-accent-short" : "text-accent-long",
+            )}
+          >
+            {fmtSignedAbbr(snapshot.flow_pulse.total)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">
+          <span>Charm v</span>
+          <span className="tabnum text-ink-base">
+            {snapshot.charm_velocity_raw.toFixed(4)}/min
+          </span>
+        </div>
+        <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">
+          <span>Expected mv</span>
+          <span className="tabnum text-ink-base">
+            {snapshot.expected_mv > 0 ? `\u00B1${snapshot.expected_mv.toFixed(2)}` : "—"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">
+          <span>Basis</span>
+          <span className="tabnum text-ink-base">
+            {snapshot.basis_smooth.toFixed(2)}
+            <span className="ml-1 text-ink-ghost">{snapshot.fut_front_sym || ""}</span>
+          </span>
+        </div>
       </div>
     </>
   );
@@ -186,11 +222,7 @@ function ZoneBadge({ snapshot }: { snapshot: Snapshot | null }) {
   const tone =
     z === "PEAK" || z === "PIN"
       ? "warn"
-      : z === "RISING"
-        ? "neutral"
-        : z === "FADING" || z === "WEAK"
-          ? "neutral"
-          : "neutral";
+      : "neutral";
   const label = z === "UNKNOWN" ? "—" : z;
   return <Pill tone={tone}>{label}</Pill>;
 }
