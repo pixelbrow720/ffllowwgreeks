@@ -84,6 +84,43 @@ jobs:
       - name: govulncheck
         run: govulncheck ./...
 
+  image-scan:
+    name: trivy image scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build]
+    strategy:
+      matrix:
+        binary: [api, ingest, compute, replay]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build image
+        run: |
+          docker build \
+            --build-arg BINARY=${{ matrix.binary }} \
+            --tag flowgreeks/${{ matrix.binary }}:ci \
+            --file deploy/Dockerfile \
+            .
+
+      - name: trivy scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: flowgreeks/${{ matrix.binary }}:ci
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          format: 'table'
+          timeout: '5m'
+
+      - name: dockerfile lint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: deploy/Dockerfile
+          ignore: DL3018,DL3008
+
   smoke:
     name: docker compose smoke (demo profile)
     runs-on: ubuntu-latest
