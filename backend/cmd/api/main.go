@@ -28,6 +28,7 @@ import (
 	"flowgreeks/internal/apikey"
 	"flowgreeks/internal/bus"
 	"flowgreeks/internal/config"
+	"flowgreeks/internal/feed"
 	"flowgreeks/internal/logger"
 	"flowgreeks/internal/replay"
 	"flowgreeks/internal/trace"
@@ -153,7 +154,7 @@ func main() {
 		}()
 	}
 
-	handlers := &api.Handlers{Cache: cache, Broker: broker}
+	handlers := &api.Handlers{Cache: cache, Broker: broker, Pool: sharedPool}
 	handlers.MountPublic(r)
 
 	// Alerts engine: subscribes to state.>, evaluates rules, delivers
@@ -165,6 +166,41 @@ func main() {
 		log.Error("alerts subscribe failed", "err", err)
 		os.Exit(1)
 	}
+
+	// Seed default rules so the dashboard signal-log populates without
+	// requiring an external operator to POST /api/alerts. These are
+	// deliberately conservative thresholds calibrated against Feb-2026
+	// SPX archive: DPI 70 = ELEVATED→FORCED edge, NetGEX -50B = clear
+	// short-γ regime, charm zone PEAK and Pin >40% are session-end
+	// signals. Per-symbol so SPX and NDX both fire when active. Cooldown
+	// 60s keeps the log readable; without it a 1Hz state stream produces
+	// thousands of identical triggers in a single session.
+	for _, sym := range []feed.Symbol{feed.SymbolSPX, feed.SymbolNDX} {
+		seedRules := []alerts.Rule{
+			{ID: string("default-dpi-forced-") + sym.String(), UserID: "system",
+				Symbol: sym, Kind: alerts.RuleDPIAbove, Threshold: 70,
+				Enabled: true, Cooldown: 60 * time.Second, Sinks: []string{"broker"}},
+			{ID: string("default-dpi-cooling-") + sym.String(), UserID: "system",
+				Symbol: sym, Kind: alerts.RuleDPIBelow, Threshold: 30,
+				Enabled: true, Cooldown: 60 * time.Second, Sinks: []string{"broker"}},
+			{ID: string("default-netgex-short-") + sym.String(), UserID: "system",
+				Symbol: sym, Kind: alerts.RuleNetGEXBelow, Threshold: -50e9,
+				Enabled: true, Cooldown: 120 * time.Second, Sinks: []string{"broker"}},
+			{ID: string("default-netgex-long-") + sym.String(), UserID: "system",
+				Symbol: sym, Kind: alerts.RuleNetGEXAbove, Threshold: 50e9,
+				Enabled: true, Cooldown: 120 * time.Second, Sinks: []string{"broker"}},
+			{ID: string("default-charm-peak-") + sym.String(), UserID: "system",
+				Symbol: sym, Kind: alerts.RuleCharmZone, StringArg: "PEAK",
+				Enabled: true, Cooldown: 60 * time.Second, Sinks: []string{"broker"}},
+			{ID: string("default-pin-active-") + sym.String(), UserID: "system",
+				Symbol: sym, Kind: alerts.RulePinProb, Threshold: 0.40,
+				Enabled: true, Cooldown: 60 * time.Second, Sinks: []string{"broker"}},
+		}
+		for _, r := range seedRules {
+			alertEng.AddRule(r)
+		}
+	}
+	log.Info("default alert rules seeded", "rules_per_symbol", 6)
 
 	// Protected surface: simulate, alerts CRUD, backtest run. When
 	// the api-key gate is on, every route inside this group requires

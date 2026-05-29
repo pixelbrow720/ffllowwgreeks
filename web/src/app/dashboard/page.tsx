@@ -42,10 +42,13 @@ export default function DashboardPage() {
           <RailNav />
 
           <main className="flex flex-1 min-w-0 flex-col">
-            {/* Hero row — fixed 720px so the chart + GEX panels never bloat */}
+            {/* Hero row — fixed 720px so the chart + GEX panels never bloat.
+                Layout: GEX strike-ladder on the left rail (vertical, fits 280px),
+                spot+DPI in the wide center column, key levels + pin on the
+                right rail. */}
             <div className="grid h-[720px] grid-cols-[280px_minmax(0,1fr)_360px]">
               <aside className="flex min-h-0 flex-col overflow-hidden border-r border-line">
-                <DPILive symbol={symbol} />
+                <GEXProfile symbol={symbol} />
               </aside>
 
               <section className="grid min-h-0 grid-rows-[460px_minmax(0,1fr)] overflow-hidden border-r border-line">
@@ -53,7 +56,7 @@ export default function DashboardPage() {
                   <SpotChart symbol={symbol} />
                 </div>
                 <div className="min-h-0 overflow-hidden">
-                  <GEXProfile symbol={symbol} />
+                  <DPILive symbol={symbol} />
                 </div>
               </section>
 

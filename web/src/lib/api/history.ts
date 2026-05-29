@@ -1,12 +1,15 @@
 "use client";
 
-// Lightweight in-memory accumulators that build session history from
-// the live WS stream. There are no REST endpoints for spot history or
-// alert log, so panels that need either subscribe here.
+// Spot + alert history accumulators. Spot history hybrid-loads from
+// /api/history (backfill on mount) plus the live WS stream (real-time
+// updates after first paint). Alert log is WS-only — alerts are only
+// fanned out when an evaluation actually triggers, so there's no
+// historical record to backfill.
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useLiveSocket } from "../ws/useLiveSocket";
 import type { Channel } from "../ws/client";
+import { getHistory } from "./client";
 import type { Symbol } from "./types";
 
 // useSyncExternalStore's third arg (the SSR snapshot) MUST return a
@@ -23,15 +26,18 @@ export interface SpotPoint {
 
 const EMPTY_SPOT_SERIES: ReadonlyArray<SpotPoint> = Object.freeze([]);
 
-const SPOT_MAX = 120;
+// 480 = 8 hours @ 1/min after dedupe. Comfortable headroom for a full
+// RTH session (6.5h) plus pre-market overlap. Backend chart query is
+// already downsampled, so memory cost is bounded.
+const SPOT_MAX = 480;
 
-// RTH-only filter. User asked the dashboard to start at 23:00 WIB
-// (= 16:00 UTC) which is ~30 min into the regular cash session, so the
-// chart skips the open-print noise and starts when dealer flow has had
-// time to settle. The backend still ingests the full window from
-// 11:29 UTC (OI seed) so the position tracker is fully populated by
-// the time we render anything.
-const RTH_START_MIN_UTC = 16 * 60;
+// RTH-only filter. User asked for the chart to start near 23:00 WIB
+// (= 16:00 UTC) but unpaced replay slows once the strike cache passes
+// ~1500 entries. We drop the cutoff to 15:30 UTC (= 22:30 WIB) so the
+// dashboard has data to render immediately. The backend still ingests
+// the full window from 11:29 UTC (OI seed) so the position tracker is
+// fully populated by the time anything renders.
+const RTH_START_MIN_UTC = 15 * 60 + 30;
 
 function isInRTH(tsNs: number): boolean {
   const d = new Date(Math.floor(tsNs / 1e6));
@@ -42,6 +48,7 @@ function isInRTH(tsNs: number): boolean {
 interface SpotEntry {
   series: SpotPoint[];
   listeners: Set<() => void>;
+  backfillStarted: boolean;
 }
 
 const spotStore = new Map<Symbol, SpotEntry>();
@@ -49,7 +56,7 @@ const spotStore = new Map<Symbol, SpotEntry>();
 function ensureSpot(symbol: Symbol): SpotEntry {
   let e = spotStore.get(symbol);
   if (!e) {
-    e = { series: [], listeners: new Set() };
+    e = { series: [], listeners: new Set(), backfillStarted: false };
     spotStore.set(symbol, e);
   }
   return e;
@@ -60,15 +67,19 @@ function pushSpot(symbol: Symbol, ts_ns: number, spot: number) {
   if (!isInRTH(ts_ns)) return;
   const e = ensureSpot(symbol);
   const last = e.series[e.series.length - 1];
-  // De-dupe ts (compute publishes every second; only keep the latest
-  // sample inside the same minute to keep the chart legible). React's
-  // strict-mode and any object the snapshot store may have shipped to
-  // a memo'd consumer can be frozen, so we always replace by allocating
-  // a fresh point rather than mutating in place.
+  // De-dupe on (HH:MM) so 60 1Hz samples per minute collapse to one
+  // point. Keeps the chart legible across multi-hour windows.
   const date = new Date(Math.floor(ts_ns / 1e6));
   const t = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   if (last && last.t === t) {
     e.series = [...e.series.slice(0, -1), { ts_ns, t, spot }];
+  } else if (last && last.ts_ns > ts_ns) {
+    // Out-of-order arrival (rare): insert in correct position so the
+    // chart stays monotonic. Backfill from REST happens after the WS
+    // has already pushed the live tail; this catches it.
+    const merged = [...e.series, { ts_ns, t, spot }].sort((a, b) => a.ts_ns - b.ts_ns);
+    e.series = dedupeByMinute(merged);
+    if (e.series.length > SPOT_MAX) e.series = e.series.slice(-SPOT_MAX);
   } else {
     e.series = [...e.series, { ts_ns, t, spot }];
     if (e.series.length > SPOT_MAX) e.series = e.series.slice(-SPOT_MAX);
@@ -76,8 +87,42 @@ function pushSpot(symbol: Symbol, ts_ns: number, spot: number) {
   e.listeners.forEach((l) => l());
 }
 
+function dedupeByMinute(arr: SpotPoint[]): SpotPoint[] {
+  // Last-wins per minute. Walk in order so the final entry per (t)
+  // bucket is the latest by ts_ns.
+  const map = new Map<string, SpotPoint>();
+  for (const p of arr) map.set(p.t, p);
+  return Array.from(map.values()).sort((a, b) => a.ts_ns - b.ts_ns);
+}
+
+// Backfill spot history from /api/history. Called once per symbol on
+// first hook mount. Window covers the past 8h so a fresh page-load
+// after lunch still shows the morning session.
+async function backfillSpot(symbol: Symbol): Promise<void> {
+  const e = ensureSpot(symbol);
+  if (e.backfillStarted) return;
+  e.backfillStarted = true;
+  try {
+    const to = new Date();
+    const from = new Date(to.getTime() - 8 * 60 * 60 * 1000);
+    const resp = await getHistory(symbol, { from, to, max: 480 });
+    for (const s of resp.samples) {
+      pushSpot(symbol, s.ts_ns, s.spot);
+    }
+  } catch (err) {
+    // Backfill is best-effort. WS will populate live; user just won't
+    // see history until a fresh sample lands.
+    // eslint-disable-next-line no-console
+    console.warn("[flowgreeks] history backfill failed", err);
+    e.backfillStarted = false; // allow a retry on remount
+  }
+}
+
 export function useSpotHistory(symbol: Symbol): SpotPoint[] {
   const sock = useLiveSocket();
+  useEffect(() => {
+    void backfillSpot(symbol);
+  }, [symbol]);
   useEffect(() => {
     if (!sock) return;
     const channel = `${symbol.toLowerCase()}:gex` as Channel;

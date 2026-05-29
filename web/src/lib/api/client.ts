@@ -117,3 +117,39 @@ export async function getLevels(symbol: Symbol, signal?: AbortSignal): Promise<L
   const wire = await request<LevelsResp>(`/api/levels/${symbol.toLowerCase()}`, { signal });
   return decodeLevels(wire);
 }
+
+// History endpoint sample shape. Mirrors backend internal/api/rest.go::history.
+export interface HistorySample {
+  ts_ns: number;
+  spot: number;
+  net_gex: number;
+  zero_gamma: number;
+  call_wall: number;
+  put_wall: number;
+  dpi: number;
+  regime: number;
+  charm_zone: number;
+  pin_active: boolean;
+  pin_top_strike: number;
+  pin_top_prob: number;
+}
+
+export interface HistoryResponse {
+  from: string;
+  to: string;
+  stride: number;
+  samples: HistorySample[];
+}
+
+export async function getHistory(
+  symbol: Symbol,
+  opts: { from?: Date; to?: Date; max?: number; signal?: AbortSignal } = {},
+): Promise<HistoryResponse> {
+  const params = new URLSearchParams();
+  if (opts.from) params.set("from", opts.from.toISOString());
+  if (opts.to) params.set("to", opts.to.toISOString());
+  if (opts.max) params.set("max", String(opts.max));
+  const q = params.toString();
+  const path = `/api/history/${symbol.toLowerCase()}${q ? `?${q}` : ""}`;
+  return request<HistoryResponse>(path, { signal: opts.signal });
+}
