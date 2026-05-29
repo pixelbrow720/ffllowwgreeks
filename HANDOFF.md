@@ -3,7 +3,166 @@
 > Read this before doing anything in a new Claude Code session.
 > Source-of-truth ranking: this file > [CLAUDE.md](CLAUDE.md) > [backend/HANDOFF.md](backend/HANDOFF.md) > [backend/docs/PROGRESS.md](backend/docs/PROGRESS.md) > git log.
 
-## Session 2026-05-29 (current)
+## Session 2026-05-29 PM (current — multi-agent fan-out)
+
+### TL;DR
+
+Six concrete deliverables in one session via parallel subagents, plus a small follow-up:
+
+1. **Bug #3 closed.** `state.<sym>.gex` payload trimmed to top-64 strikes by `|DealerPos|`. Re-smoke 2026-02-12 SPX 11:29→14:40 UTC unpaced: 1,515 rows in `dealer_state_1s`, zero `nats: maximum payload exceeded` warns over 17-minute run that previously spammed at 1 Hz. All three deferred replay bugs are now closed.
+2. **Web token migration done.** 47 occurrences of `signal-up`/`signal-down`/`signal-warn` → `accent-long`/`accent-short`/`accent-warn` across 13 files in `web/src/components/`. `npm run build` + `npm run lint` clean.
+3. **Frontend Sprint 1 wired live.** Typed REST client + WS client (exp-jitter reconnect, heartbeat watchdog) + 5 dashboard panels migrated off mock data (`Topbar`, `SpotChart`, `GEXProfile`, `KeyLevels`, `SignalLog`).
+4. **Offline calibration tool — `cmd/calibrate`.** New binary fits empirical DPI/charm/pin normalizers from `dealer_state_1s` against the 9-day archive. R-7 percentiles. `make calibrate` ready.
+5. **Admin keys endpoints — `internal/api/admin.go`.** Loopback-default listener, single shared-secret gate (`ADMIN_TOKEN`), keyset pagination, idempotent revoke, audit on every op. 12 new test cases.
+6. **Build state.** `go vet ./...` clean; `go test ./...` **19/19 packages green** (gained `cmd/calibrate`); web build + lint clean.
+7. **WS auth via `?api_key=` query param.** `apikey.extractSecret` now accepts the secret from the query string ONLY when the request is a RFC 6455 WebSocket upgrade (Connection: Upgrade + Upgrade: websocket, checked as a token list because real browsers send `keep-alive, Upgrade`). Plain HTTP requests still ignore the query param so secrets don't leak into proxy logs / Referer / browser history. Headers win over query when both present. 7 new test cases in `internal/apikey/middleware_test.go`. Frontend was already sending `?api_key=` since Sprint 1; this closes the gate.
+
+8. **Calibration consumer wired into `cmd/compute`.** New `--calibration-config <path>` flag loads the JSON emitted by `cmd/calibrate` and applies it to the live engines on startup. `internal/dealer/calibration.go` (new) parses + lower-cases keys + exposes `PreferredSymbol(map)` (SPX wins; NDX falls back; zero-sample entries skipped). `DPIScorer.SetThresholds(gex, charmFlow, vanna)` and `CharmClockClassifier.SetVelocityThresholds(weak, peak)` apply runtime overrides — both validate inputs (positive, monotonic) so a malformed JSON cannot silently zero a normalizer. The package-level `charmWeakVelocityCeiling` / `charmPeakVelocityFloor` constants moved to per-classifier struct fields seeded from new `DefaultCharm*` exports. Pin `min_probability` is parsed but not applied — pin engine has no clean trigger-probability gate; design call deferred. 12 new test cases in `internal/dealer/calibration_test.go`. `go test ./... -count=1` 19/19 packages green.
+
+### Done (uncommitted — ready to commit, big batch)
+
+Same morning + early-PM context as before:
+- Replay reader reconstructs `Tick.FuturesContract` via new `FrontMonthContract`.
+- `cmd/compute` runs on event time (`Pipeline.lastEventNs` atomic) — TTE / TTC / charm-clock window / persisted ts / published ts_ns all driven from per-pipeline event-time high-water mark.
+- `DPIScorer` / `CharmClockClassifier` got `SetSessionBounds` setters.
+- Eager spot seed from basis on first futures tick.
+- Bumped NATS subscriber pending limits (8M msgs / 1 GiB).
+
+Plus this fan-out session:
+- **Bug #3 fix** — `cmd/compute/main.go` (`stateMaxStrikes`=64, `topStrikesByDealerPos`, wire format gains `strike_count_total`/`strike_count_returned`) + `cmd/compute/main_test.go` (5 cases).
+- **Token migration** — 13 files in `web/src/components/` swept clean of `signal-up/down/warn`.
+- **Frontend Sprint 1** — added `web/src/lib/api/{schema.ts,types.ts,client.ts,snapshot.ts,history.ts}` + `web/src/lib/ws/{client.ts,useLiveSocket.ts}`; modified `web/package.json` (`gen:api` script) + 5 dashboard panels.
+- **Offline calibration** — added `backend/cmd/calibrate/{main.go,main_test.go}` (354 + 264 LOC); modified `backend/Makefile` (`calibrate` target + `.PHONY`).
+- **Admin keys** — added `backend/internal/api/{admin.go,admin_test.go}` (~310 + ~370 LOC); modified `backend/internal/{config/config.go,apikey/{store.go,memory.go,audit.go}}` + `backend/cmd/api/main.go`.
+- All three plumbing bugs closed in this session series. Three deferred bugs from this morning are now zero.
+
+Suggested commit messages (one cohesive PR per concern):
+
+```
+fix(replay,compute): unblock historical math + trim state payload
+
+(plus the bug #1 / #2 / #3 + side fixes already documented above)
+```
+
+```
+feat(web): typed REST + WS client and Sprint 1 panel migration
+
+- gen:api npm script, openapi-typescript schema gen
+- typed REST client with bearer-key auth + structured errors
+- WS client with exp-jitter reconnect + heartbeat watchdog +
+  ref-counted channel subscribe
+- shared snapshot store + spot-history / alert-log accumulators
+- migrate Topbar/SpotChart/GEXProfile/KeyLevels/SignalLog off mock
+- token migration signal-up/down/warn → accent-long/short/warn (47
+  occurrences, 13 files)
+- npm run build + lint clean
+```
+
+```
+feat(calibrate): offline tool for fitting DPI/charm/pin normalizers
+
+- cmd/calibrate binary walks dealer_state_1s, emits JSON config of
+  R-7 percentiles per symbol (gex_norm, charm_flow_rate_norm,
+  vanna_pressure_norm, charm_zone_boundaries, pin_min_probability)
+- make calibrate target hits the 9-day archive
+- 264-LOC test suite covers percentile math + edge cases
+- internal/dealer not yet wired to consume the output (separate
+  follow-up after a sanity-check pass)
+```
+
+```
+feat(api): admin keys list/revoke surface on separate loopback port
+
+- new admin listener (ADMIN_LISTEN_ADDR default 127.0.0.1:9090,
+  ADMIN_TOKEN gate), boots only when both env vars + DB pool present
+- GET /admin/keys (paginated, keyset cursor, max 200), GET /admin/keys/{id},
+  POST /admin/keys/{id}/revoke (idempotent 204)
+- audit sink emits admin.list (INFO) + admin.revoke (WARN); secret +
+  hash never returned, only 8-hex SHA-256 prefix
+- Store interface gains GetByID + ListPaged on PgStore + MemoryStore
+- two-phase shutdown (5s admin → 15s public)
+- 12 new test cases; existing public-mux tests byte-identical
+```
+
+### Deferred bugs
+
+All three replay bugs from this morning are closed. None outstanding from current session. Calibration consumer wiring (`internal/dealer/dpi.go` + `internal/dealer/charm_clock.go` reading the JSON) is the next deliberate follow-up.
+
+### Next session menu
+
+- **A: Wire calibration JSON into compute config-load path.** Add `--calibration-config` flag to `cmd/compute`, hot-load on SIGHUP. Run the calibration against the full 9-day archive once user has docker stack up. Sanity-check the fit and commit defaults. ~2-3h.
+- **B: Wire `?api_key=` WS auth on the backend.** Frontend already sends it; backend currently ignores it. Tightens the gate. ~30 min.
+- **C: Migrate the remaining mock-fed dashboard panels** (`DPIGauge`, `CharmClock`, `DPITimeline`, `FlowTape`, `ForcedFlow`). ~2h.
+- **D: `signal-info` / `signal-pin` cleanup.** 11 remaining occurrences. ~15 min.
+- **E: Spot-history endpoint.** REST `/api/history/{symbol}/spot?from=...&to=...` so first-paint of `SpotChart` doesn't start empty. ~1h.
+- **F: Contact Databento support** to unlock the OPRA account.
+
+### To start fresh
+
+```
+cd C:\FLOWGREEKS
+git status                    # see big batch of uncommitted work
+git log --oneline -10         # last commits
+```
+
+## Session 2026-05-29 PM (earlier — replaced by current)
+
+- **Bug #1 fixed — `replay/reader.go` reconstructs `Tick.FuturesContract`.** New helper `internal/replay/futures.go::FrontMonthContract(sym, ts)` derives the CME front-month symbol from `(symbol, ts)` per third-Friday quarterly H/M/U/Z convention (SPX→ES, NDX→NQ; rolls over on the expiry day; year wraps `2026→2027`). Schema unchanged — derivation lives entirely in `scanTick`. New `futures_test.go` covers 9 cases including the March-expiry rollover edge and year wraparound. Result: futures ticks now route through `bus.Publisher.subjectFor`, basis tracker accumulates, `pipelineSpot` returns the real Feb-2026 SPX level (~6987 from ES front-mid).
+- **Bug #2 fixed — compute aggregator runs on event time, not wall clock.** `Pipeline.lastEventNs` (atomic uint64) is updated by every tick's `TsEvent` in `handleTick`. The aggregator loop now drives `fillGreeks` TTE, DPI TTC decay, Charm Clock zone window, persisted `dealer_state_1s.ts`, and published `state.spx.gex.ts_ns` from this per-pipeline event-time "now" instead of `time.Now()`. `DPIScorer` and `CharmClockClassifier` got `SetSessionBounds(start, end)` setters so the aggregator rebuilds the 09:30→16:00 ET session window per event-time day each iteration. Live ingest is unaffected (event-time ≈ wall-clock); replay no longer collapses every TTE to 0 against a 2026-05 wall clock.
+- **Bug #3 fixed — `state.<sym>.gex` payload trim.** New `topStrikesByDealerPos(rows, n)` helper picks the top 64 strikes by `|DealerPos|` (deterministic tie-break on Expiry/Strike/Side) before marshalling to JSON. New `cmd/compute/main_test.go` (5 cases) covers no-trim/trim/zero-n/non-mutating-source/tie-break determinism. Wire format gains `strike_count_total` + `strike_count_returned` so consumers can tell they are looking at a concentration view, not the full chain. Persisted `dealer_state_1s` is unaffected (writes a flat row, not the JSON). Same 3-hour smoke that previously spammed `nats: maximum payload exceeded` at 1 Hz once the strike cache passed ~600 strikes now runs to completion at 1,565 strikes with **zero payload warns**.
+- **Side fix — eager spot seed from basis on first futures tick.** Without it, the per-second aggregator was the only thing copying basis→`p.spot`, so on a fast unpaced replay the IV solver burned its first thousand attempts against the hardcoded 5800 fallback while real strikes sat at 6900-7100. Lazy seed in `handleTick` futures branch (`if p.spot == 0 { ... basis.Snapshot ... }`) closes that.
+- **Side fix — bump compute NATS subscriber pending limits.** Default core-NATS subscriber limit is 65k msgs / 64 MiB; unpaced replay can publish ~1.8M ticks in ~17min wall and the slow-consumer drop ate everything past the OI seed. Set to 8M msgs / 1 GiB via `sub.SetPendingLimits` in `cmd/compute/main.go`. Live ingest stays well below this.
+- **Build state:** `go vet ./...` clean; `go test ./... -count=1 -timeout 120s` 18/18 packages green; new `internal/replay/futures_test.go` 9/9 + `cmd/compute/main_test.go` 5/5.
+- **Smoke proof — 2026-02-12 SPX 11:29→14:40 UTC, unpaced (run #2 with payload trim).** **1,515 rows** in `dealer_state_1s` (compute kept ticking after replay drained — last row at 14:39:59 historical event time). avg spot **6813.01**, **1,203/1,515 rows non-zero NetGEX** (avg ≈ -54.5B notional → short-gamma regime). DPI composite climbed 60→71, charm zone PEAK by 14:30. Last minute (14:39): 324 snapshots, avg spot 6987.26, avg NetGEX -58.2B, DPI 71.52, zone PEAK. **Zero `nats: maximum payload exceeded` warns** in the entire 17-minute wall-clock run, despite strike cache passing 1,500.
+
+### Deferred bugs
+
+All three from this morning are now closed.
+
+### Next session menu
+
+- **A: Frontend Sprint 1 (`web/`)** — typed fetcher from openapi.yaml, WS client with reconnect, migrate 4-5 dashboard panels off mock data. Backend math now produces real numbers against real session timestamps, so the dashboard will display sensible output when wired. ~3-4h.
+- **B: Token migration in `web/`** — 98 occurrences of `signal-up`/`signal-down`/`signal-warn` → `accent-short`/`accent-long`/`accent-warn` per the new tailwind config. Pure search-and-replace. ~30 min.
+- **C: Calibrate DPI/Charm/Pin priors offline** against the 211M-tick archive. Now genuinely unblocked — replay produces real `dealer_state_1s` rows against real Feb-2026 spot levels. Walk the 9 days, snapshot DPI components against realised flow, fit normalizer constants. ~3-5h initial pass.
+- **D: Contact Databento support** to unlock the account; OPRA-dependent verification stays blocked indefinitely without it.
+
+### To start fresh in a new session
+
+```
+cd C:\FLOWGREEKS
+git status                                # see uncommitted changes
+git log --oneline -10                     # last commits
+```
+
+Suggested commit message:
+```
+fix(replay,compute): unblock historical math + trim state payload
+
+- replay/reader: derive front-month CME contract from (sym, ts) so basis
+  tracker can populate during replay (ticks hypertable has no
+  futures_contract column). New replay/futures.go::FrontMonthContract.
+- compute: drive TTE, TTC, charm-clock window, persisted state ts, and
+  published ts_ns from per-pipeline event-time high-water mark
+  (Pipeline.lastEventNs atomic) instead of wall clock. DPIScorer and
+  CharmClockClassifier gain SetSessionBounds setters.
+- compute: trim per-tick state.<sym>.gex JSON to top-64 strikes by
+  |dealer_pos| via topStrikesByDealerPos so the broadcast stays under
+  NATS' 1 MiB max_payload once the strike cache passes ~600. Wire format
+  gains strike_count_total + strike_count_returned for consumers.
+- compute: eager spot seed from basis on first futures tick + bump NATS
+  subscriber pending limits (8M msgs / 1 GiB) so unpaced replay doesn't
+  drop the option-quote flood.
+- tests: replay/futures_test.go covers quarterly H/M/U/Z, expiry-day
+  rollover, year wraparound. cmd/compute/main_test.go covers
+  topStrikesByDealerPos. go test ./... 18/18 green.
+
+Smoke 2026-02-12 SPX 11:29-14:40Z: 1515 rows at 1 Hz, avg spot 6813,
+1203/1515 rows with non-zero NetGEX (avg -54.5B notional), DPI 60→71
+across window, zone PEAK by 14:30. Zero nats:maximum-payload warns
+across 17min wall-clock run with 1500+ strike cache.
+```
+
+## Earlier session 2026-05-29 PM (replaced by current)
 
 ### Done (uncommitted — ready to commit)
 
