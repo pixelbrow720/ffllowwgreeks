@@ -1,0 +1,66 @@
+# PostgreSQL backup runbook for FlowGreeks (TimescaleDB).
+#
+# Logical backup via pg_dump. For terabyte-scale physical backup,
+# pg_basebackup + WAL archiving is the next step — out of scope for
+# the current single-host deploy.
+#
+# Schedule: daily at 02:30 UTC. Retention: 30 daily, 12 monthly.
+# Storage: local volume + offsite copy (rclone to Backblaze B2 / S3).
+#
+# Restore drill: see deploy/scripts/pg_restore_drill.sh — run quarterly
+# minimum. A backup that has never been restored is not a backup.
+
+services:
+  pg-backup:
+    profiles: ["backup"]
+    container_name: fg-pg-backup
+    image: timescale/timescaledb:2.16.1-pg15
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /backups/daily /backups/monthly
+        chmod 700 /backups
+        # Cron-like loop: dump at 02:30 UTC daily, retention sweep at 03:30.
+        while true; do
+          NOW=$(date -u +%H:%M)
+          DATE=$(date -u +%Y%m%d)
+          if [ "$NOW" = "02:30" ] && [ ! -f "/backups/daily/$DATE.dump" ]; then
+            echo "[$(date -u)] starting backup $DATE"
+            PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+              -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+              --format=custom --compress=9 \
+              --file="/backups/daily/$DATE.dump.tmp"
+            mv "/backups/daily/$DATE.dump.tmp" "/backups/daily/$DATE.dump"
+            # First-of-month copy to monthly retention bucket.
+            DAY=$(date -u +%d)
+            if [ "$DAY" = "01" ]; then
+              cp "/backups/daily/$DATE.dump" "/backups/monthly/$DATE.dump"
+            fi
+            echo "[$(date -u)] backup complete: $(ls -lh /backups/daily/$DATE.dump)"
+          fi
+          if [ "$NOW" = "03:30" ]; then
+            # Daily: keep last 30 files. Monthly: keep last 12.
+            ls -1t /backups/daily/*.dump 2>/dev/null | tail -n +31 | xargs -r rm -f
+            ls -1t /backups/monthly/*.dump 2>/dev/null | tail -n +13 | xargs -r rm -f
+          fi
+          sleep 60
+        done
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowgreeks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowgreeks_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-flowgreeks}
+    volumes:
+      - pg-backup-data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+volumes:
+  pg-backup-data:
